@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Coding Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0e0f;
+    --panel: #131619;
+    --panel-raised: #191d21;
+    --border: #262b2f;
+    --text: #e6e9ea;
+    --text-dim: #8a9298;
+    --text-faint: #565d62;
+    --accent: #7ee787;
+    --accent-dim: #2e5f34;
+    --amber: #e3b341;
+    --red: #f47067;
+    --focus: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+  ::selection { background: var(--accent-dim); }
+  a { color: var(--focus); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 2px;
+  }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ---- tiny fetch helpers ----
+async function getJSON(url, opts) {
+  const r = await fetch(url, { credentials: 'same-origin', ...opts });
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) throw Object.assign(new Error((data && data.error) || r.statusText), { status: r.status, data });
+  return data;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+// ---- branch/PR glyph, drawn once, reused as the app's signature mark ----
+function BranchMark({ size = 22, color = 'var(--accent)' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="6" cy="5" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <circle cx="6" cy="19" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <circle cx="18" cy="12" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <path d="M6 7.4V16.6" stroke={color} strokeWidth="1.6"/>
+      <path d="M6 8C6 12 10 12 15.7 12" stroke={color} strokeWidth="1.6"/>
+    </svg>
+  );
+}
+
+function TopBar({ session, onLogout }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '18px 28px', borderBottom: '1px solid var(--border)',
+      background: 'var(--panel)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <BranchMark />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.01em' }}>Coding Agent</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>aider · NVIDIA NIM</div>
+        </div>
+      </div>
+      {session && session.loggedIn ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span className="mono" style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+            <span style={{ color: 'var(--accent)' }}>●</span> {session.githubLogin || 'connected'}
+          </span>
+          <button onClick={onLogout} style={{
+            background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-dim)',
+            borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer'
+          }}>Disconnect</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectScreen({ githubConfigured }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      minHeight: '70vh', padding: 24, textAlign: 'center'
+    }}>
+      <BranchMark size={40} />
+      <h1 style={{ fontSize: 22, marginTop: 18, marginBottom: 8, fontWeight: 700 }}>Connect a GitHub account</h1>
+      <p style={{ color: 'var(--text-dim)', maxWidth: 420, lineHeight: 1.6, marginBottom: 26 }}>
+        The agent needs repo access to clone, branch, and open pull requests on your behalf.
+        Your token stays server-side — it's never sent to this page.
+      </p>
+      {githubConfigured ? (
+        <a href="/auth/github" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+          background: 'var(--text)', color: 'var(--bg)', fontWeight: 600, fontSize: 14,
+          padding: '11px 20px', borderRadius: 8
+        }}>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Connect GitHub
+        </a>
+      ) : (
+        <div className="mono" style={{
+          fontSize: 12.5, color: 'var(--amber)', border: '1px solid #4d3d1a', background: '#1f1a0d',
+          borderRadius: 8, padding: '12px 16px', maxWidth: 460, textAlign: 'left', lineHeight: 1.7
+        }}>
+          GITHUB_CLIENT_ID isn't set on the server yet.<br/>
+          Register an OAuth App at github.com/settings/developers, then set
+          GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / APP_BASE_URL in Railway.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepoSelect({ repos, value, onChange, loading, error }) {
+  return (
+    <div>
+      <label style={labelStyle}>Repository</label>
+      {loading ? (
+        <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '10px 0' }}>Loading repos…</div>
+      ) : error ? (
+        <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '10px 0' }}>{error}</div>
+      ) : (
+        <select value={value} onChange={onChange} style={inputStyle}>
+          <option value="">Select a repo…</option>
+          {repos.map(r => (
+            <option key={r.fullName} value={r.fullName}>
+              {r.fullName}{r.private ? ' 🔒' : ''}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
+const labelStyle = {
+  display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
+  textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8
+};
+const inputStyle = {
+  width: '100%', background: 'var(--panel-raised)', border: '1px solid var(--border)',
+  color: 'var(--text)', borderRadius: 8, padding: '11px 12px', fontSize: 14,
+  fontFamily: 'inherit'
+};
+
+function Dashboard({ session, onLogout }) {
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [reposError, setReposError] = useState(null);
+
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
+
+  const [repoFullName, setRepoFullName] = useState('');
+  const [baseBranch, setBaseBranch] = useState('main');
+  const [model, setModel] = useState('');
+  const [task, setTask] = useState('');
+
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null); // { ok, changed, prUrl, log, error, ... }
+  const [runError, setRunError] = useState(null);
+  const logEndRef = useRef(null);
+
+  useEffect(() => {
+    getJSON('/api/repos')
+      .then(d => setRepos(d.repos || []))
+      .catch(e => setReposError(e.message))
+      .finally(() => setReposLoading(false));
+    getJSON('/api/models')
+      .then(d => { setModels(d.models || []); setDefaultModel(d.default || ''); setModel(d.default || ''); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const repo = repos.find(r => r.fullName === repoFullName);
+    if (repo) setBaseBranch(repo.defaultBranch || 'main');
+  }, [repoFullName, repos]);
+
+  useEffect(() => {
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [result, running]);
+
+  const canRun = repoFullName && task.trim() && !running;
+
+  const runAgent = useCallback(async () => {
+    if (!canRun) return;
+    setRunning(true);
+    setResult(null);
+    setRunError(null);
+    const repo = repos.find(r => r.fullName === repoFullName);
+    try {
+      const data = await getJSON('/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl: repo ? repo.htmlUrl : `https://github.com/${repoFullName}`,
+          task: task.trim(),
+          baseBranch,
+          model: model || undefined,
+        }),
+      });
+      setResult(data);
+    } catch (e) {
+      setRunError(e.message);
+      if (e.data) setResult(e.data);
+      if (e.data && e.data.reconnectRequired) {
+        setTimeout(() => window.location.reload(), 1800);
+      }
+    } finally {
+      setRunning(false);
+    }
+  }, [canRun, repoFullName, repos, task, baseBranch, model]);
+
+  return (
+    <div style={{ maxWidth: 780, margin: '0 auto', padding: '36px 24px 80px' }}>
+      <div style={{
+        background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12,
+        padding: 26, marginBottom: 22
+      }}>
+        <div style={{ display: 'grid', gap: 18 }}>
+          <RepoSelect
+            repos={repos}
+            value={repoFullName}
+            onChange={e => setRepoFullName(e.target.value)}
+            loading={reposLoading}
+            error={reposError}
+          />
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Base branch</label>
+              <input
+                className="mono"
+                style={inputStyle}
+                value={baseBranch}
+                onChange={e => setBaseBranch(e.target.value)}
+                placeholder="main"
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Model</label>
+              <input
+                className="mono"
+                style={inputStyle}
+                list="model-options"
+                value={model}
+                onChange={e => setModel(e.target.value)}
+                placeholder={defaultModel}
+              />
+              <datalist id="model-options">
+                {models.map(m => <option key={m} value={m} />)}
+              </datalist>
+            </div>
+          </div>
+
+          <div>
+            <label style={labelStyle}>Task</label>
+            <textarea
+              style={{ ...inputStyle, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }}
+              value={task}
+              onChange={e => setTask(e.target.value)}
+              placeholder="Add input validation to the signup form and return a 400 with a clear message on invalid email"
+            />
+          </div>
+
+          <button
+            onClick={runAgent}
+            disabled={!canRun}
+            style={{
+              justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8,
+              background: canRun ? 'var(--accent)' : 'var(--panel-raised)',
+              color: canRun ? '#0c0e0f' : 'var(--text-faint)',
+              border: 'none', borderRadius: 8, padding: '11px 22px',
+              fontWeight: 700, fontSize: 14, cursor: canRun ? 'pointer' : 'not-allowed'
+            }}
+          >
+            {running ? (<><Spinner /> Running…</>) : 'Run agent'}
+          </button>
+        </div>
+      </div>
+
+      {(running || result || runError) && (
+        <ResultPanel running={running} result={result} runError={runError} logEndRef={logEndRef} />
+      )}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span className="mono" style={{
+      display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(12,14,15,0.35)',
+      borderTopColor: '#0c0e0f', borderRadius: '50%', animation: 'spin 0.7s linear infinite'
+    }} />
+  );
+}
+
+function ResultPanel({ running, result, runError, logEndRef }) {
+  const log = (result && result.log) || [];
+  const changed = result && result.changed;
+  const ok = result && result.ok;
+
+  return (
+    <div style={{
+      background: '#0a0b0c', border: '1px solid var(--border)', borderRadius: 12,
+      padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5
+    }}>
+      <div style={{ color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Run log
+      </div>
+      {log.map((line, i) => (
+        <div key={i} style={{ color: 'var(--text-dim)', padding: '2px 0', display: 'flex', gap: 8 }}>
+          <span style={{ color: 'var(--text-faint)' }}>›</span>{line}
+        </div>
+      ))}
+      {running && (
+        <div style={{ color: 'var(--accent)', padding: '2px 0', display: 'flex', gap: 8 }}>
+          <span>›</span> working…
+        </div>
+      )}
+
+      {runError && !result && (
+        <div style={{ color: 'var(--red)', marginTop: 10 }}>{runError}</div>
+      )}
+
+      {result && result.reconnectRequired && (
+        <div style={{ color: 'var(--red)', marginTop: 12 }}>
+          Your GitHub connection expired. Reconnecting…
+        </div>
+      )}
+
+      {result && ok && changed === false && (
+        <div style={{ color: 'var(--amber)', marginTop: 12 }}>
+          No changes were needed for this task.
+        </div>
+      )}
+
+      {result && ok && changed && result.prUrl && (
+        <div style={{
+          marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 10
+        }}>
+          <span style={{ color: 'var(--accent)' }}>✓ PR opened</span>
+          <a href={result.prUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--focus)' }}>
+            {result.prUrl}
+          </a>
+        </div>
+      )}
+
+      {result && result.ok === false && !result.reconnectRequired && (
+        <div style={{ color: 'var(--red)', marginTop: 12 }}>
+          {result.error}
+        </div>
+      )}
+
+      <div ref={logEndRef} />
+    </div>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+
+  const loadSession = useCallback(() => {
+    getJSON('/api/session').then(setSession).catch(() => setSession({ loggedIn: false })).finally(() => setLoadingSession(false));
+  }, []);
+
+  useEffect(() => { loadSession(); }, [loadSession]);
+
+  const onLogout = useCallback(async () => {
+    await fetch('/auth/logout', { method: 'POST' });
+    loadSession();
+  }, [loadSession]);
+
+  if (loadingSession) return null;
+
+  return (
+    <React.Fragment>
+      <TopBar session={session} onLogout={onLogout} />
+      {session && session.loggedIn
+        ? <Dashboard session={session} onLogout={onLogout} />
+        : <ConnectScreen githubConfigured={session && session.githubConfigured} />}
+    </React.Fragment>
+  );
+}
+
+const styleTag = document.createElement('style');
+styleTag.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(styleTag);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

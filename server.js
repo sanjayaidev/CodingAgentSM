@@ -8,26 +8,110 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.PORT || 3000;
+const IS_PROD = process.env.NODE_ENV === 'production';
 
-// Shared secret to protect this endpoint from random internet traffic
+// Shared secret to protect /agent/run from random internet traffic when
+// called server-to-server (e.g. from another backend). The built-in UI
+// below does NOT use this — it authenticates via the session cookie
+// created by the GitHub OAuth flow instead.
 const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
 
-// NIM connection details (OpenAI-compatible)
+// NIM connection details (OpenAI-compatible) — this is "our own API for AI
+// calls": aider talks to NVIDIA NIM using these, never anything client-side.
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NIM_API_KEY || '';
 const DEFAULT_MODEL = process.env.NIM_MODEL || 'qwen/qwen2.5-coder-32b-instruct';
 
-// Fallback GitHub token if the caller doesn't pass one per-request
+// A small curated set of models known to work well for coding tasks via
+// NIM. Verify these exact ids against your own NIM account's catalog
+// (README note) before relying on any beyond the default.
+const CODING_MODELS = [
+  DEFAULT_MODEL,
+  'meta/llama-3.3-70b-instruct',
+  'meta/llama-3.1-70b-instruct',
+  'mistralai/mistral-large-3-675b-instruct-2512',
+  'moonshotai/kimi-k2.6',
+].filter((v, i, arr) => arr.indexOf(v) === i);
+
+// Fallback GitHub token if no one is connected via the UI and no per-request
+// token is supplied (server-to-server callers only).
 const DEFAULT_GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+
+// GitHub OAuth App credentials — register an app at
+// https://github.com/settings/developers with callback URL
+// `${APP_BASE_URL}/auth/github/callback`.
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '';
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
+// Public URL this app is deployed at, e.g. https://your-app.up.railway.app
+// Falls back to inferring from the incoming request if unset.
+const APP_BASE_URL = process.env.APP_BASE_URL || '';
 
 const WORKSPACES_DIR = path.join(__dirname, 'workspaces');
 if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
 
-function requireApiKey(req, res, next) {
-  if (!AGENT_API_KEY) return next(); // no key configured = open (fine for local testing only)
+// ---- minimal cookie-session store (no extra deps) ----
+// In-memory: sessionId -> { githubToken, githubLogin, createdAt }.
+// Single-instance, lost on redeploy/restart — fine for a personal-use app;
+// the user just clicks "Connect GitHub" again. If you scale to multiple
+// Railway replicas later, swap this Map for Redis/Postgres.
+const sessions = new Map();
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+  const out = {};
+  if (!header) return out;
+  header.split(';').forEach((pair) => {
+    const idx = pair.indexOf('=');
+    if (idx === -1) return;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return out;
+}
+
+function setCookie(res, name, value, { maxAge } = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
+  if (maxAge) parts.push(`Max-Age=${maxAge}`);
+  if (IS_PROD) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearCookie(res, name) {
+  res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0`);
+}
+
+function getSession(req) {
+  const sid = parseCookies(req).sid;
+  if (!sid) return null;
+  return sessions.get(sid) || null;
+}
+
+function baseUrlFor(req) {
+  return APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+// Auth for /agent/run: accepts EITHER a valid x-api-key (server-to-server
+// callers, per README) OR a logged-in browser session (the built-in UI).
+// Populates req.githubToken and req.authSource either way.
+function resolveAgentAuth(req, res, next) {
   const key = req.headers['x-api-key'] || req.query.api_key;
-  if (key === AGENT_API_KEY) return next();
-  return res.status(401).json({ error: 'Invalid or missing x-api-key' });
+  if (AGENT_API_KEY && key === AGENT_API_KEY) {
+    req.authSource = 'api-key';
+    req.githubToken = req.body.githubToken || DEFAULT_GITHUB_TOKEN;
+    return next();
+  }
+  const session = getSession(req);
+  if (session) {
+    req.authSource = 'session';
+    req.githubToken = session.githubToken;
+    return next();
+  }
+  if (!AGENT_API_KEY) {
+    // No key configured at all — allow through for local testing only.
+    req.authSource = 'open';
+    req.githubToken = req.body.githubToken || DEFAULT_GITHUB_TOKEN;
+    return next();
+  }
+  return res.status(401).json({ error: 'Not authenticated — connect GitHub in the UI, or pass a valid x-api-key' });
 }
 
 function run(cmd, args, opts = {}) {
@@ -87,12 +171,11 @@ async function openPullRequest({ owner, repo, token, head, base, title, body }) 
   return data;
 }
 
-app.post('/agent/run', requireApiKey, async (req, res) => {
+app.post('/agent/run', resolveAgentAuth, async (req, res) => {
   const {
     repoUrl,
     task,
     baseBranch = 'main',
-    githubToken,
     model,
     prTitle,
     prBody
@@ -101,8 +184,14 @@ app.post('/agent/run', requireApiKey, async (req, res) => {
   if (!repoUrl) return res.status(400).json({ error: 'repoUrl is required' });
   if (!task) return res.status(400).json({ error: 'task is required (instructions for aider)' });
 
-  const token = githubToken || DEFAULT_GITHUB_TOKEN;
-  if (!token) return res.status(400).json({ error: 'No GitHub token provided (body.githubToken or GITHUB_TOKEN env var)' });
+  const token = req.githubToken;
+  if (!token) {
+    return res.status(400).json({
+      error: req.authSource === 'session'
+        ? 'No GitHub token on your session — reconnect GitHub'
+        : 'No GitHub token provided (body.githubToken or GITHUB_TOKEN env var)'
+    });
+  }
 
   if (!NIM_API_KEY) return res.status(500).json({ error: 'NIM_API_KEY is not configured on the server' });
 
@@ -200,11 +289,18 @@ app.post('/agent/run', requireApiKey, async (req, res) => {
     step(`Failed: ${err.message}`);
     cleanup(workDir);
     const authError = isGithubAuthError(err);
-    if (authError) step('Detected GitHub auth failure — token is likely invalid or revoked');
+    if (authError) {
+      step('Detected GitHub auth failure — token is likely invalid or revoked');
+      if (req.authSource === 'session') {
+        const sid = parseCookies(req).sid;
+        if (sid) sessions.delete(sid);
+      }
+    }
     return res.status(authError ? 401 : 500).json({
       ok: false,
       error: err.message,
       authError,
+      reconnectRequired: authError && req.authSource === 'session',
       stderr: err.stderr || null,
       log
     });
@@ -218,6 +314,117 @@ function cleanup(dir) {
 }
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+// ---- GitHub OAuth (connect account) ----
+
+app.get('/auth/github', (req, res) => {
+  if (!GITHUB_CLIENT_ID) return res.status(500).send('GITHUB_CLIENT_ID is not configured on the server');
+  const state = crypto.randomBytes(16).toString('hex');
+  setCookie(res, 'oauth_state', state, { maxAge: 600 });
+  const redirectUri = `${baseUrlFor(req)}/auth/github/callback`;
+  const authUrl = new URL('https://github.com/login/oauth/authorize');
+  authUrl.searchParams.set('client_id', GITHUB_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('scope', 'repo'); // needed for clone/push/PR on private + public repos
+  authUrl.searchParams.set('state', state);
+  res.redirect(authUrl.toString());
+});
+
+app.get('/auth/github/callback', async (req, res) => {
+  const { code, state } = req.query;
+  const cookies = parseCookies(req);
+  if (!code || !state || state !== cookies.oauth_state) {
+    return res.status(400).send('GitHub sign-in failed (invalid or expired state). Go back and try connecting again.');
+  }
+  try {
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: `${baseUrlFor(req)}/auth/github/callback`,
+      }),
+    });
+    const tokenData = await tokenRes.json();
+    if (!tokenData.access_token) {
+      return res.status(400).send(`GitHub sign-in failed: ${tokenData.error_description || JSON.stringify(tokenData)}`);
+    }
+
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}`, 'User-Agent': 'coding-agent' },
+    });
+    const userData = await userRes.json();
+
+    const sid = crypto.randomBytes(24).toString('hex');
+    sessions.set(sid, {
+      githubToken: tokenData.access_token,
+      githubLogin: userData.login || null,
+      createdAt: Date.now(),
+    });
+    setCookie(res, 'sid', sid, { maxAge: 60 * 60 * 24 * 7 }); // 7 days
+    clearCookie(res, 'oauth_state');
+    res.redirect('/');
+  } catch (err) {
+    res.status(500).send(`GitHub sign-in failed: ${err.message}`);
+  }
+});
+
+app.post('/auth/logout', (req, res) => {
+  const sid = parseCookies(req).sid;
+  if (sid) sessions.delete(sid);
+  clearCookie(res, 'sid');
+  res.json({ ok: true });
+});
+
+app.get('/api/session', (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.json({ loggedIn: false, githubConfigured: Boolean(GITHUB_CLIENT_ID) });
+  res.json({ loggedIn: true, githubLogin: session.githubLogin });
+});
+
+// ---- repo picker ----
+
+app.get('/api/repos', async (req, res) => {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Not connected to GitHub yet' });
+  try {
+    const repos = [];
+    for (let page = 1; page <= 3; page++) {
+      const r = await fetch(`https://api.github.com/user/repos?sort=updated&per_page=100&page=${page}`, {
+        headers: { Authorization: `Bearer ${session.githubToken}`, 'User-Agent': 'coding-agent' },
+      });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        return res.status(r.status).json({ error: errBody.message || 'Failed to list repos from GitHub' });
+      }
+      const batch = await r.json();
+      repos.push(...batch);
+      if (batch.length < 100) break;
+    }
+    res.json({
+      repos: repos.map((r) => ({
+        fullName: r.full_name,
+        htmlUrl: r.html_url,
+        defaultBranch: r.default_branch,
+        private: r.private,
+        updatedAt: r.updated_at,
+      })),
+    });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
+app.get('/api/models', (req, res) => {
+  res.json({ models: CODING_MODELS, default: DEFAULT_MODEL });
+});
+
+// ---- static UI ----
+// Serves public/index.html at '/' (fixes "Cannot GET /") and the agent
+// dashboard. Must come after the API routes above so nothing shadows them.
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Coding agent server listening on port ${PORT}`);
