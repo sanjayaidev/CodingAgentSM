@@ -49,6 +49,66 @@
     padding: 22px;
     display: grid; gap: 16px;
   }
+  .chat-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.55fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .chat-sidepanel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+    position: sticky;
+    top: 20px;
+  }
+  .sidepanel-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .sidepanel-copy {
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .step-list {
+    display: grid;
+    gap: 8px;
+  }
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+    background: rgba(255,255,255,0.02);
+  }
+  .step-item.active {
+    border-color: rgba(126,231,135,0.35);
+    color: var(--text);
+    background: rgba(126,231,135,0.08);
+  }
+  .step-item.complete {
+    border-color: rgba(126,231,135,0.18);
+    color: var(--text);
+    background: rgba(126,231,135,0.05);
+  }
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
   .chat-toolbar {
     display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
   }
@@ -135,6 +195,8 @@
   @media (max-width: 860px) {
     .dashboard-grid { grid-template-columns: 1fr; padding: 0 18px 60px; }
     .dashboard-grid > *:last-child { position: static !important; max-height: none !important; }
+    .chat-layout { grid-template-columns: 1fr; }
+    .chat-sidepanel { position: static; }
     .composer-row { flex-direction: column; align-items: stretch; }
     .model-select { max-width: none; }
   }
@@ -342,7 +404,10 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   const [baseBranch, setBaseBranch] = useState('main');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [activitySteps, setActivitySteps] = useState([]);
+  const [activeStep, setActiveStep] = useState(0);
   const endRef = useRef(null);
+  const activityTimerRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -377,6 +442,40 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  useEffect(() => {
+    return () => {
+      if (activityTimerRef.current) window.clearTimeout(activityTimerRef.current);
+    };
+  }, []);
+
+  const launchActivityFlow = useCallback((steps) => {
+    if (activityTimerRef.current) window.clearTimeout(activityTimerRef.current);
+    setActivitySteps(steps);
+    setActiveStep(0);
+    if (!steps.length) return;
+
+    let index = 0;
+    const tick = () => {
+      if (index >= steps.length) {
+        setActiveStep(steps.length - 1);
+        return;
+      }
+      setActiveStep(index);
+      index += 1;
+      activityTimerRef.current = window.setTimeout(tick, 900);
+    };
+    activityTimerRef.current = window.setTimeout(tick, 500);
+  }, []);
+
+  const stopActivityFlow = useCallback(() => {
+    if (activityTimerRef.current) {
+      window.clearTimeout(activityTimerRef.current);
+      activityTimerRef.current = null;
+    }
+    setActiveStep(0);
+    setActivitySteps([]);
+  }, []);
+
   const handleSend = useCallback(async (event) => {
     event.preventDefault();
     const userPrompt = input.trim();
@@ -392,6 +491,10 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
     const isRepoQuestion = Boolean(selectedRepo) && /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(userPrompt);
     const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
+    const initialSteps = shouldRunAgent
+      ? ['Preparing request', 'Cloning repository', 'Reading relevant files', 'Sending context to AI', 'Applying changes', 'Opening pull request']
+      : ['Preparing request', 'Inspecting repository', 'Reading key files', 'Generating answer'];
+    launchActivityFlow(initialSteps);
 
     try {
       let assistantMessage = '';
@@ -432,107 +535,129 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
       setError(e.message);
     } finally {
       setLoading(false);
+      stopActivityFlow();
     }
-  }, [baseBranch, defaultModel, input, loading, messages, repoFullName, repos, selectedModel]);
+  }, [baseBranch, defaultModel, input, launchActivityFlow, loading, messages, repoFullName, repos, selectedModel, stopActivityFlow]);
 
   const resetChat = useCallback(() => {
     setMessages([]);
     setInput('');
     setError('');
+    stopActivityFlow();
     try {
       window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch }));
     } catch (_) {}
-  }, [baseBranch, repoFullName, selectedModel]);
+  }, [baseBranch, repoFullName, selectedModel, stopActivityFlow]);
 
   const selectedRepo = repos.find((r) => r.fullName === repoFullName);
   const branchOptions = [selectedRepo?.defaultBranch, 'main', 'master', 'develop', 'staging'].filter(Boolean);
 
   return (
-    <div className="card chat-card">
-      <div className="chat-toolbar">
-        <div className="chat-header">
-          <BranchMark size={18} />
-          <div>
-            <div className="chat-title">One prompt box</div>
-            <div className="chat-subtitle">Ask anything or request a repo change. The answer appears here in markdown.</div>
+    <div className="chat-layout">
+      <div className="card chat-card">
+        <div className="chat-toolbar">
+          <div className="chat-header">
+            <BranchMark size={18} />
+            <div>
+              <div className="chat-title">One prompt box</div>
+              <div className="chat-subtitle">Ask anything or request a repo change. The answer appears here in markdown.</div>
+            </div>
           </div>
-        </div>
-        <div className="toolbar-actions">
-          <select className="model-select mono" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
-            {models.length === 0 && <option value="">Loading…</option>}
-            {models.map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-          <button className="ghost-btn" onClick={resetChat}>New chat</button>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gap: 12 }}>
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1.4fr 0.6fr', alignItems: 'end' }}>
-          <div>
-            <label style={labelStyle}>Repository</label>
-            {reposLoading ? (
-              <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>Loading repos…</div>
-            ) : reposError ? (
-              <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '8px 0' }}>{reposError}</div>
-            ) : (
-              <select value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} style={inputStyle}>
-                <option value="">No repo selected</option>
-                {repos.map((r) => <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>)}
-              </select>
-            )}
-          </div>
-          <div>
-            <label style={labelStyle}>Base branch</label>
-            <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
-              {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+          <div className="toolbar-actions">
+            <select className="model-select mono" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
+              {models.length === 0 && <option value="">Loading…</option>}
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
+            <button className="ghost-btn" onClick={resetChat}>New chat</button>
           </div>
         </div>
-      </div>
 
-      <div className="chat-window">
-        {messages.length === 0 && !loading && (
-          <div className="chat-empty">
-            Ask what this repository does, request code, or describe a change you want made.<br />
-            The reply renders as markdown and code blocks include a copy button.
-          </div>
-        )}
-        {messages.map((message, index) => (
-          <div key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
-            <div className="message-bubble">
-              <div className="message-label">{message.role === 'user' ? 'You' : 'Assistant'}</div>
-              <MessageContent content={message.content} />
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1.4fr 0.6fr', alignItems: 'end' }}>
+            <div>
+              <label style={labelStyle}>Repository</label>
+              {reposLoading ? (
+                <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>Loading repos…</div>
+              ) : reposError ? (
+                <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '8px 0' }}>{reposError}</div>
+              ) : (
+                <select value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} style={inputStyle}>
+                  <option value="">No repo selected</option>
+                  {repos.map((r) => <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>)}
+                </select>
+              )}
+            </div>
+            <div>
+              <label style={labelStyle}>Base branch</label>
+              <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
+                {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
             </div>
           </div>
-        ))}
-        {loading && (
-          <div className="message-row assistant">
-            <div className="message-bubble">
-              <div className="message-label">Assistant</div>
-              <div className="helper-text">Thinking…</div>
-            </div>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-
-      <form className="composer" onSubmit={handleSend}>
-        <div className="composer-row">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask a question or tell the agent what to change in the selected repo…"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                handleSend(event);
-              }
-            }}
-          />
-          <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
         </div>
-        {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">If you ask for an implementation change and a repo is selected, the app will run it and show the result here.</div>}
-      </form>
+
+        <div className="chat-window">
+          {messages.length === 0 && !loading && (
+            <div className="chat-empty">
+              Ask what this repository does, request code, or describe a change you want made.<br />
+              The reply renders as markdown and code blocks include a copy button.
+            </div>
+          )}
+          {messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
+              <div className="message-bubble">
+                <div className="message-label">{message.role === 'user' ? 'You' : 'Assistant'}</div>
+                <MessageContent content={message.content} />
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="message-row assistant">
+              <div className="message-bubble">
+                <div className="message-label">Assistant</div>
+                <div className="helper-text">Thinking…</div>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        <form className="composer" onSubmit={handleSend}>
+          <div className="composer-row">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask a question or tell the agent what to change in the selected repo…"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSend(event);
+                }
+              }}
+            />
+            <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
+          </div>
+          {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">If you ask for an implementation change and a repo is selected, the app will run it and show the result here.</div>}
+        </form>
+      </div>
+
+      <aside className="chat-sidepanel">
+        <div className="sidepanel-title">Agent flow</div>
+        <div className="sidepanel-copy">A lightweight activity panel shows the request stages while the agent works.</div>
+        <div className="step-list">
+          {(activitySteps.length === 0 ? ['Ready when you send a prompt'] : activitySteps).map((step, index) => {
+            const isComplete = activitySteps.length > 0 && index < activeStep;
+            const isActive = activitySteps.length > 0 && index === activeStep;
+            const stateClass = isComplete ? 'complete' : isActive ? 'active' : '';
+            return (
+              <div key={`${step}-${index}`} className={`step-item ${stateClass}`.trim()}>
+                <span className="step-dot" />
+                <span>{step}</span>
+              </div>
+            );
+          })}
+        </div>
+      </aside>
     </div>
   );
 }
