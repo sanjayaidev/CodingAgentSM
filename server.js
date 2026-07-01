@@ -165,6 +165,79 @@ function parseOwnerRepo(repoUrl) {
   return { owner: match[1], repo: match[2] };
 }
 
+function isRepoQuestionPrompt(text = '') {
+  const hasRepoTerms = /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(text);
+  const hasActionVerb = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(text);
+  return hasRepoTerms && !hasActionVerb;
+}
+
+async function collectRepositoryContext({ cwd, repoUrl, baseBranch = 'main', token } = {}) {
+  let tempDir = cwd;
+  let shouldCleanup = false;
+
+  if (repoUrl && !tempDir) {
+    tempDir = fs.mkdtempSync(path.join(WORKSPACES_DIR, 'repo-context-'));
+    shouldCleanup = true;
+    const cloneUrl = buildAuthedCloneUrl(repoUrl, token);
+    await run('git', ['clone', '--depth', '1', '--branch', baseBranch, cloneUrl, tempDir]);
+  }
+
+  if (!tempDir || !fs.existsSync(tempDir)) {
+    throw new Error('Repository workspace could not be prepared');
+  }
+
+  const topLevelEntries = fs.readdirSync(tempDir, { withFileTypes: true });
+  const topLevelFiles = topLevelEntries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .sort()
+    .slice(0, 40)
+    .join(', ') || '(none)';
+
+  const candidateFiles = [
+    'README.md',
+    'readme.md',
+    'package.json',
+    'server.js',
+    'index.js',
+    'app.js',
+    'src/index.js',
+    'src/main.js',
+    'src/app.js',
+    'public/index.html',
+    'index.html',
+    'main.py',
+    'requirements.txt',
+    'pyproject.toml',
+    'Dockerfile',
+    'docker-compose.yml',
+    'railway.json',
+    'vercel.json',
+    'tsconfig.json',
+    '.env.example',
+  ];
+
+  const snippets = [];
+  for (const relPath of candidateFiles) {
+    const absPath = path.join(tempDir, relPath);
+    if (!fs.existsSync(absPath)) continue;
+    let content = fs.readFileSync(absPath, 'utf8').replace(/\r/g, '');
+    content = content.split('\n').slice(0, 80).join('\n').trim();
+    if (!content) continue;
+    snippets.push(`File: ${relPath}\n${content.slice(0, 4000)}`);
+  }
+
+  if (snippets.length === 0) {
+    snippets.push(`No obvious source files found. Top-level files: ${topLevelFiles}`);
+  }
+
+  const label = repoUrl || path.basename(tempDir);
+  const result = `Repository context for ${label}\nTop-level files: ${topLevelFiles}\n\n${snippets.join('\n\n')}`;
+
+  if (shouldCleanup) cleanup(tempDir);
+  return result;
+}
+
 function buildAuthedCloneUrl(repoUrl, token) {
   if (!token) return repoUrl;
   return repoUrl.replace('https://', `https://x-access-token:${token}@`);
@@ -453,7 +526,7 @@ app.get('/api/models', (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
-  const { messages = [], model } = req.body || {};
+  const { messages = [], model, repoUrl, baseBranch } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array is required' });
   }
@@ -462,7 +535,26 @@ app.post('/api/chat', async (req, res) => {
   }
 
   const selectedModel = isAllowedModel(model) ? model : DEFAULT_MODEL;
+  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+  const shouldInspectRepo = Boolean(repoUrl) && isRepoQuestionPrompt(lastUserMessage);
+
   try {
+    let promptMessages = messages;
+    if (shouldInspectRepo) {
+      const repoContext = await collectRepositoryContext({
+        repoUrl,
+        baseBranch,
+        token: req.githubToken || DEFAULT_GITHUB_TOKEN,
+      });
+      promptMessages = [
+        {
+          role: 'system',
+          content: `You are a helpful coding assistant. Answer clearly in markdown. If asked for code, provide concise code blocks. If asked about a repository, explain what it does and mention likely entry points.\n\nRepository context:\n${repoContext}`,
+        },
+        ...messages,
+      ];
+    }
+
     const response = await fetch(`${NIM_API_BASE}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -471,7 +563,7 @@ app.post('/api/chat', async (req, res) => {
       },
       body: JSON.stringify({
         model: selectedModel,
-        messages,
+        messages: promptMessages,
         temperature: 0.2,
         max_tokens: 1800,
       }),
@@ -494,8 +586,15 @@ app.post('/api/chat', async (req, res) => {
 // dashboard. Must come after the API routes above so nothing shadows them.
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Coding agent server listening on port ${PORT}`);
-  console.log(`Default model: ${DEFAULT_MODEL}`);
-  console.log(`NIM base: ${NIM_API_BASE}`);
-});
+if (require.main === module) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Coding agent server listening on port ${PORT}`);
+    console.log(`Default model: ${DEFAULT_MODEL}`);
+    console.log(`NIM base: ${NIM_API_BASE}`);
+  });
+}
+
+module.exports = {
+  app,
+  collectRepositoryContext,
+};

@@ -390,6 +390,7 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
 
     const selectedRepo = repos.find((r) => r.fullName === repoFullName);
     const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
+    const isRepoQuestion = Boolean(selectedRepo) && /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(userPrompt);
     const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
 
     try {
@@ -419,6 +420,8 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
               ...nextMessages,
             ],
             model: selectedModel || defaultModel || undefined,
+            repoUrl: isRepoQuestion && selectedRepo ? selectedRepo.htmlUrl : undefined,
+            baseBranch: isRepoQuestion ? baseBranch : undefined,
           }),
         });
         assistantMessage = data.message || 'No response returned.';
@@ -440,6 +443,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
       window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch }));
     } catch (_) {}
   }, [baseBranch, repoFullName, selectedModel]);
+
+  const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+  const branchOptions = [selectedRepo?.defaultBranch, 'main', 'master', 'develop', 'staging'].filter(Boolean);
 
   return (
     <div className="card chat-card">
@@ -477,7 +483,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
           </div>
           <div>
             <label style={labelStyle}>Base branch</label>
-            <input className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
+            <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
+              {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+            </select>
           </div>
         </div>
       </div>
@@ -573,6 +581,8 @@ function Dashboard({ session, onLogout }) {
   }, [result, running]);
 
   const canRun = repoFullName && task.trim() && !running;
+  const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+  const branchOptions = [selectedRepo?.defaultBranch, 'main', 'master', 'develop', 'staging'].filter(Boolean);
 
   const runAgent = useCallback(async () => {
     if (!canRun) return;
@@ -611,7 +621,9 @@ function Dashboard({ session, onLogout }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <label style={labelStyle}>Base branch</label>
-              <input className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
+              <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
+                {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
             </div>
             <div>
               <label style={labelStyle}>Model</label>
