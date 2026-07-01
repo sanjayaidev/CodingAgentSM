@@ -5,6 +5,11 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
+// Railway terminates TLS and forwards requests internally over HTTP; without
+// this, req.protocol always reports 'http' even on a https:// request, which
+// makes the OAuth redirect_uri we build not match what's registered on the
+// GitHub OAuth App ("redirect_uri is not associated with this application").
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 
 const PORT = process.env.PORT || 3000;
@@ -68,15 +73,22 @@ function parseCookies(req) {
   return out;
 }
 
+function appendSetCookie(res, cookieStr) {
+  const prev = res.getHeader('Set-Cookie');
+  if (!prev) res.setHeader('Set-Cookie', [cookieStr]);
+  else if (Array.isArray(prev)) res.setHeader('Set-Cookie', [...prev, cookieStr]);
+  else res.setHeader('Set-Cookie', [prev, cookieStr]);
+}
+
 function setCookie(res, name, value, { maxAge } = {}) {
   const parts = [`${name}=${encodeURIComponent(value)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
   if (maxAge) parts.push(`Max-Age=${maxAge}`);
   if (IS_PROD) parts.push('Secure');
-  res.setHeader('Set-Cookie', parts.join('; '));
+  appendSetCookie(res, parts.join('; '));
 }
 
 function clearCookie(res, name) {
-  res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0`);
+  appendSetCookie(res, `${name}=; Path=/; Max-Age=0`);
 }
 
 function getSession(req) {
