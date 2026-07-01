@@ -3,6 +3,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const db = require('./lib/db');
 
 const app = express();
 // Railway terminates TLS and forwards requests internally over HTTP; without
@@ -49,7 +50,7 @@ const ALLOWED_MODELS = [
 ];
 const DEFAULT_MODEL = process.env.NIM_MODEL && ALLOWED_MODELS.includes(process.env.NIM_MODEL)
   ? process.env.NIM_MODEL
-  : 'meta/llama-3.3-70b-instruct';
+  : 'moonshotai/kimi-k2.6';
 
 function isAllowedModel(modelId) {
   return ALLOWED_MODELS.includes(modelId);
@@ -73,12 +74,33 @@ const APP_BASE_URL = process.env.APP_BASE_URL || '';
 const WORKSPACES_DIR = path.join(__dirname, 'workspaces');
 if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
 
-// ---- minimal cookie-session store (no extra deps) ----
-// In-memory: sessionId -> { githubToken, githubLogin, createdAt }.
-// Single-instance, lost on redeploy/restart — fine for a personal-use app;
-// the user just clicks "Connect GitHub" again. If you scale to multiple
-// Railway replicas later, swap this Map for Redis/Postgres.
+// ---- cookie-session store ----
+// In-memory Map: sessionId -> { githubToken, githubLogin, createdAt }.
+// Doubles as a request-scoped cache in front of Postgres (see lib/db.js)
+// when DATABASE_URL is set — reads hit the Map first, writes go to both.
+// Without DATABASE_URL this behaves exactly as before: single-instance,
+// lost on redeploy/restart, just click "Connect GitHub" again.
 const sessions = new Map();
+
+async function createSession(sid, data) {
+  sessions.set(sid, data);
+  if (db.enabled) await db.saveSession(sid, data);
+}
+
+async function fetchSession(sid) {
+  if (sessions.has(sid)) return sessions.get(sid);
+  if (db.enabled) {
+    const fromDb = await db.getSession(sid);
+    if (fromDb) sessions.set(sid, fromDb);
+    return fromDb;
+  }
+  return null;
+}
+
+async function removeSession(sid) {
+  sessions.delete(sid);
+  if (db.enabled) await db.deleteSession(sid);
+}
 
 function parseCookies(req) {
   const header = req.headers.cookie;
@@ -110,10 +132,10 @@ function clearCookie(res, name) {
   appendSetCookie(res, `${name}=; Path=/; Max-Age=0`);
 }
 
-function getSession(req) {
+async function getSession(req) {
   const sid = parseCookies(req).sid;
   if (!sid) return null;
-  return sessions.get(sid) || null;
+  return fetchSession(sid);
 }
 
 function baseUrlFor(req) {
@@ -123,14 +145,14 @@ function baseUrlFor(req) {
 // Auth for /agent/run: accepts EITHER a valid x-api-key (server-to-server
 // callers, per README) OR a logged-in browser session (the built-in UI).
 // Populates req.githubToken and req.authSource either way.
-function resolveAgentAuth(req, res, next) {
+async function resolveAgentAuth(req, res, next) {
   const key = req.headers['x-api-key'] || req.query.api_key;
   if (AGENT_API_KEY && key === AGENT_API_KEY) {
     req.authSource = 'api-key';
     req.githubToken = req.body.githubToken || DEFAULT_GITHUB_TOKEN;
     return next();
   }
-  const session = getSession(req);
+  const session = await getSession(req);
   if (session) {
     req.authSource = 'session';
     req.githubToken = session.githubToken;
@@ -293,44 +315,33 @@ async function openPullRequest({ owner, repo, token, head, base, title, body }) 
   return data;
 }
 
-app.post('/agent/run', resolveAgentAuth, async (req, res) => {
-  const {
-    repoUrl,
-    task,
-    baseBranch = 'main',
-    model,
-    prTitle,
-    prBody
-  } = req.body;
+// Builds the actual instruction sent to aider. `context` is the recent
+// chat history (from the browser session) — without this, each agent run
+// is a fresh clone with zero memory of anything said earlier in the chat,
+// so "add the text you just gave me" has nothing to refer to. We fold the
+// last few turns in so aider can resolve references like that.
+function buildAiderTask(task, context) {
+  if (!Array.isArray(context) || context.length === 0) return task;
+  const recent = context.slice(-8); // last few turns is plenty; keeps prompt small
+  const transcript = recent
+    .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+    .join('\n\n');
+  return `Recent conversation for context (the task below may refer back to things said here, e.g. "the text you gave me"):\n\n${transcript}\n\n---\n\nNow do this: ${task}`;
+}
 
-  if (!repoUrl) return res.status(400).json({ error: 'repoUrl is required' });
-  if (!task) return res.status(400).json({ error: 'task is required (instructions for aider)' });
-
-  const token = req.githubToken;
-  if (!token) {
-    return res.status(400).json({
-      error: req.authSource === 'session'
-        ? 'No GitHub token on your session — reconnect GitHub'
-        : 'No GitHub token provided (body.githubToken or GITHUB_TOKEN env var)'
-    });
-  }
-
-  if (!NIM_API_KEY) return res.status(500).json({ error: 'NIM_API_KEY is not configured on the server' });
-
-  let owner, repo;
-  try {
-    ({ owner, repo } = parseOwnerRepo(repoUrl));
-  } catch (e) {
-    return res.status(400).json({ error: e.message });
-  }
-
+// Core run logic shared by the buffered /agent/run and the streaming
+// /agent/run/stream. `onStep(msg)` is called for every progress update —
+// /agent/run just accumulates it into an array, /agent/run/stream also
+// writes it to the client immediately as an SSE event.
+async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model, prTitle, prBody, token }, onStep) {
+  const { owner, repo } = parseOwnerRepo(repoUrl);
   const runId = crypto.randomBytes(6).toString('hex');
   const workDir = path.join(WORKSPACES_DIR, `${repo}-${runId}`);
   const branchName = `aider/${runId}`;
   const chosenModel = model || DEFAULT_MODEL;
+  const fullTask = buildAiderTask(task, context);
 
-  const log = [];
-  const step = (msg) => { console.log(`[${runId}] ${msg}`); log.push(msg); };
+  const step = (msg) => { console.log(`[${runId}] ${msg}`); onStep(msg); };
 
   try {
     step(`Cloning ${owner}/${repo}@${baseBranch}`);
@@ -354,7 +365,7 @@ app.post('/agent/run', resolveAgentAuth, async (req, res) => {
       '--yes-always',
       '--no-check-update',
       '--model', `openai/${chosenModel}`,
-      '--message', task,
+      '--message', fullTask,
       '--no-gitignore'
     ];
     let aiderResult;
@@ -367,20 +378,14 @@ app.post('/agent/run', resolveAgentAuth, async (req, res) => {
       aiderResult = { stdout: aiderErr.stdout || '', stderr: aiderErr.stderr || '' };
     }
 
-    const commitResult = await commitPendingChanges({ cwd: workDir, task, step });
+    await commitPendingChanges({ cwd: workDir, task, step });
 
     // Check whether aider actually produced any commits on top of base
     const { stdout: diffStat } = await run('git', ['diff', '--stat', `origin/${baseBranch}`, 'HEAD'], { cwd: workDir });
     if (!diffStat.trim()) {
       step('No changes were made by aider — skipping push/PR');
       cleanup(workDir);
-      return res.json({
-        ok: true,
-        changed: false,
-        message: 'Aider made no changes for this task',
-        aiderOutput: aiderResult.stdout,
-        log
-      });
+      return { ok: true, changed: false, message: 'Aider made no changes for this task', aiderOutput: aiderResult.stdout };
     }
 
     step(`Pushing branch ${branchName}`);
@@ -400,25 +405,73 @@ app.post('/agent/run', resolveAgentAuth, async (req, res) => {
     step(`PR opened: ${pr.html_url}`);
     cleanup(workDir);
 
-    return res.json({
-      ok: true,
-      changed: true,
-      prUrl: pr.html_url,
-      prNumber: pr.number,
-      branch: branchName,
-      aiderOutput: aiderResult.stdout,
-      log
-    });
+    return { ok: true, changed: true, prUrl: pr.html_url, prNumber: pr.number, branch: branchName, aiderOutput: aiderResult.stdout };
   } catch (err) {
     step(`Failed: ${err.message}`);
     cleanup(workDir);
-    const authError = isGithubAuthError(err);
-    if (authError) {
-      step('Detected GitHub auth failure — token is likely invalid or revoked');
-      if (req.authSource === 'session') {
-        const sid = parseCookies(req).sid;
-        if (sid) sessions.delete(sid);
-      }
+    err.isAgentRunError = true;
+    throw err;
+  }
+}
+
+async function handleAuthErrorForRequest(req, err, step) {
+  const authError = isGithubAuthError(err);
+  if (authError) {
+    if (step) step('Detected GitHub auth failure — token is likely invalid or revoked');
+    if (req.authSource === 'session') {
+      const sid = parseCookies(req).sid;
+      if (sid) await removeSession(sid);
+    }
+  }
+  return authError;
+}
+
+function validateAgentRunRequest(req, res) {
+  const { repoUrl, task } = req.body;
+  if (!repoUrl) { res.status(400).json({ error: 'repoUrl is required' }); return null; }
+  if (!task) { res.status(400).json({ error: 'task is required (instructions for aider)' }); return null; }
+  const token = req.githubToken;
+  if (!token) {
+    res.status(400).json({
+      error: req.authSource === 'session'
+        ? 'No GitHub token on your session — reconnect GitHub'
+        : 'No GitHub token provided (body.githubToken or GITHUB_TOKEN env var)'
+    });
+    return null;
+  }
+  if (!NIM_API_KEY) { res.status(500).json({ error: 'NIM_API_KEY is not configured on the server' }); return null; }
+  try {
+    parseOwnerRepo(repoUrl);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+    return null;
+  }
+  return token;
+}
+
+// Buffered variant — unchanged response shape, still used by server-to-server
+// callers (see README "Calling it directly").
+app.post('/agent/run', resolveAgentAuth, async (req, res) => {
+  const token = validateAgentRunRequest(req, res);
+  if (!token) return;
+  const { repoUrl, task, context, baseBranch = 'main', model, prTitle, prBody } = req.body;
+
+  const log = [];
+  try {
+    const result = await runAgentTask(
+      { repoUrl, task, context, baseBranch, model, prTitle, prBody, token },
+      (msg) => log.push(msg)
+    );
+    if (db.enabled) {
+      const sid = parseCookies(req).sid;
+      await db.saveAgentRun(sid, { repoUrl, task, status: result.changed ? 'pr_opened' : 'no_changes', prUrl: result.prUrl, log });
+    }
+    return res.json({ ...result, log });
+  } catch (err) {
+    const authError = await handleAuthErrorForRequest(req, err, (msg) => log.push(msg));
+    if (db.enabled) {
+      const sid = parseCookies(req).sid;
+      await db.saveAgentRun(sid, { repoUrl, task, status: 'failed', log });
     }
     return res.status(authError ? 401 : 500).json({
       ok: false,
@@ -428,6 +481,53 @@ app.post('/agent/run', resolveAgentAuth, async (req, res) => {
       stderr: err.stderr || null,
       log
     });
+  }
+});
+
+// Streaming variant — used by the built-in UI so the activity panel shows
+// real progress instead of a canned animation. Emits newline-delimited JSON
+// events: {type:"step", message} for each stage, then one final
+// {type:"done", ...result} or {type:"error", ...}.
+app.post('/agent/run/stream', resolveAgentAuth, async (req, res) => {
+  const token = validateAgentRunRequest(req, res);
+  if (!token) return;
+  const { repoUrl, task, context, baseBranch = 'main', model, prTitle, prBody } = req.body;
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event) => res.write(JSON.stringify(event) + '\n');
+
+  const log = [];
+  try {
+    const result = await runAgentTask(
+      { repoUrl, task, context, baseBranch, model, prTitle, prBody, token },
+      (msg) => { log.push(msg); send({ type: 'step', message: msg }); }
+    );
+    if (db.enabled) {
+      const sid = parseCookies(req).sid;
+      await db.saveAgentRun(sid, { repoUrl, task, status: result.changed ? 'pr_opened' : 'no_changes', prUrl: result.prUrl, log });
+    }
+    send({ type: 'done', ...result, log });
+  } catch (err) {
+    const authError = await handleAuthErrorForRequest(req, err, (msg) => { log.push(msg); send({ type: 'step', message: msg }); });
+    if (db.enabled) {
+      const sid = parseCookies(req).sid;
+      await db.saveAgentRun(sid, { repoUrl, task, status: 'failed', log });
+    }
+    send({
+      type: 'error',
+      error: err.message,
+      authError,
+      reconnectRequired: authError && req.authSource === 'session',
+      stderr: err.stderr || null,
+      log
+    });
+  } finally {
+    res.end();
   }
 });
 
@@ -482,7 +582,7 @@ app.get('/auth/github/callback', async (req, res) => {
     const userData = await userRes.json();
 
     const sid = crypto.randomBytes(24).toString('hex');
-    sessions.set(sid, {
+    await createSession(sid, {
       githubToken: tokenData.access_token,
       githubLogin: userData.login || null,
       createdAt: Date.now(),
@@ -495,17 +595,17 @@ app.get('/auth/github/callback', async (req, res) => {
   }
 });
 
-app.post('/auth/logout', (req, res) => {
+app.post('/auth/logout', async (req, res) => {
   const sid = parseCookies(req).sid;
-  if (sid) sessions.delete(sid);
+  if (sid) await removeSession(sid);
   clearCookie(res, 'sid');
   res.json({ ok: true });
 });
 
-app.get('/api/session', (req, res) => {
-  const session = getSession(req);
-  if (!session) return res.json({ loggedIn: false, githubConfigured: Boolean(GITHUB_CLIENT_ID) });
-  res.json({ loggedIn: true, githubLogin: session.githubLogin });
+app.get('/api/session', async (req, res) => {
+  const session = await getSession(req);
+  if (!session) return res.json({ loggedIn: false, githubConfigured: Boolean(GITHUB_CLIENT_ID), persistence: db.enabled });
+  res.json({ loggedIn: true, githubLogin: session.githubLogin, persistence: db.enabled });
 });
 
 // ---- repo picker ----
