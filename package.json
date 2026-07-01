@@ -1,0 +1,13 @@
+{
+  "name": "coding-agent",
+  "version": "1.0.0",
+  "description": "Aider + NIM powered coding agent: clone repo, apply changes, open PR",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "simple-git": "^3.25.0"
+  }
+}
