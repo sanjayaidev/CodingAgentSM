@@ -334,10 +334,12 @@ function MessageContent({ content }) {
   return <div ref={containerRef} className="message-markdown" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function ChatPanel({ models, defaultModel }) {
+function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [selectedModel, setSelectedModel] = useState(defaultModel || '');
+  const [repoFullName, setRepoFullName] = useState('');
+  const [baseBranch, setBaseBranch] = useState('main');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const endRef = useRef(null);
@@ -349,6 +351,8 @@ function ChatPanel({ models, defaultModel }) {
         const parsed = JSON.parse(raw);
         if (parsed.messages) setMessages(parsed.messages);
         if (parsed.model) setSelectedModel(parsed.model);
+        if (parsed.repo) setRepoFullName(parsed.repo);
+        if (parsed.baseBranch) setBaseBranch(parsed.baseBranch);
       }
     } catch (_) {}
   }, []);
@@ -359,10 +363,15 @@ function ChatPanel({ models, defaultModel }) {
   }, [defaultModel]);
 
   useEffect(() => {
+    const repo = repos.find((r) => r.fullName === repoFullName);
+    if (repo) setBaseBranch(repo.defaultBranch || 'main');
+  }, [repoFullName, repos]);
+
+  useEffect(() => {
     try {
-      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel }));
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel, repo: repoFullName, baseBranch }));
     } catch (_) {}
-  }, [messages, selectedModel]);
+  }, [messages, selectedModel, repoFullName, baseBranch]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -379,35 +388,58 @@ function ChatPanel({ models, defaultModel }) {
     setError('');
     setLoading(true);
 
+    const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+    const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
+    const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
+
     try {
-      const data = await getJSON('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: 'You are a helpful coding assistant. Answer clearly in markdown. If asked for code, provide concise code blocks. When asked about a repository, explain what it does and mention likely entry points.' },
-            ...nextMessages,
-          ],
-          model: selectedModel || defaultModel || undefined,
-        }),
-      });
-      setMessages([...nextMessages, { role: 'assistant', content: data.message || 'No response returned.' }]);
+      let assistantMessage = '';
+      if (shouldRunAgent) {
+        const data = await getJSON('/agent/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoUrl: selectedRepo ? selectedRepo.htmlUrl : `https://github.com/${repoFullName}`,
+            task: userPrompt,
+            baseBranch,
+            model: selectedModel || defaultModel || undefined,
+          }),
+        });
+        const logLines = Array.isArray(data.log) ? data.log : [];
+        assistantMessage = data.changed
+          ? `Implemented the requested change.\n\nPR: ${data.prUrl || 'n/a'}\n\n${logLines.map((line) => `- ${line}`).join('\n')}`
+          : `No changes were needed for this task.\n\n${logLines.map((line) => `- ${line}`).join('\n')}`;
+      } else {
+        const data = await getJSON('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: 'You are a helpful coding assistant. Answer clearly in markdown. If asked for code, provide concise code blocks. When asked about a repository, explain what it does and mention likely entry points.' },
+              ...nextMessages,
+            ],
+            model: selectedModel || defaultModel || undefined,
+          }),
+        });
+        assistantMessage = data.message || 'No response returned.';
+      }
+      setMessages([...nextMessages, { role: 'assistant', content: assistantMessage }]);
     } catch (e) {
       setMessages([...nextMessages, { role: 'assistant', content: `Sorry, I could not respond. ${e.message}` }]);
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [defaultModel, input, loading, messages, selectedModel]);
+  }, [baseBranch, defaultModel, input, loading, messages, repoFullName, repos, selectedModel]);
 
   const resetChat = useCallback(() => {
     setMessages([]);
     setInput('');
     setError('');
     try {
-      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel }));
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch }));
     } catch (_) {}
-  }, [selectedModel]);
+  }, [baseBranch, repoFullName, selectedModel]);
 
   return (
     <div className="card chat-card">
@@ -415,8 +447,8 @@ function ChatPanel({ models, defaultModel }) {
         <div className="chat-header">
           <BranchMark size={18} />
           <div>
-            <div className="chat-title">Ask anything</div>
-            <div className="chat-subtitle">General questions, explanations, helper code, and repo guidance in markdown.</div>
+            <div className="chat-title">One prompt box</div>
+            <div className="chat-subtitle">Ask anything or request a repo change. The answer appears here in markdown.</div>
           </div>
         </div>
         <div className="toolbar-actions">
@@ -425,6 +457,28 @@ function ChatPanel({ models, defaultModel }) {
             {models.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
           <button className="ghost-btn" onClick={resetChat}>New chat</button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1.4fr 0.6fr', alignItems: 'end' }}>
+          <div>
+            <label style={labelStyle}>Repository</label>
+            {reposLoading ? (
+              <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>Loading repos…</div>
+            ) : reposError ? (
+              <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '8px 0' }}>{reposError}</div>
+            ) : (
+              <select value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} style={inputStyle}>
+                <option value="">No repo selected</option>
+                {repos.map((r) => <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>)}
+              </select>
+            )}
+          </div>
+          <div>
+            <label style={labelStyle}>Base branch</label>
+            <input className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
+          </div>
         </div>
       </div>
 
@@ -459,7 +513,7 @@ function ChatPanel({ models, defaultModel }) {
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Ask about the repo, request code, or describe a change…"
+            placeholder="Ask a question or tell the agent what to change in the selected repo…"
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -469,7 +523,7 @@ function ChatPanel({ models, defaultModel }) {
           />
           <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
         </div>
-        {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">Responses are kept locally in this browser so your current chat survives refreshes.</div>}
+        {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">If you ask for an implementation change and a repo is selected, the app will run it and show the result here.</div>}
       </form>
     </div>
   );
@@ -608,6 +662,9 @@ function App() {
   const [loadingSession, setLoadingSession] = useState(true);
   const [models, setModels] = useState([]);
   const [defaultModel, setDefaultModel] = useState('');
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [reposError, setReposError] = useState(null);
 
   const loadSession = useCallback(() => {
     getJSON('/api/session').then(setSession).catch(() => setSession({ loggedIn: false })).finally(() => setLoadingSession(false));
@@ -616,6 +673,7 @@ function App() {
   useEffect(() => { loadSession(); }, [loadSession]);
   useEffect(() => {
     getJSON('/api/models').then((d) => { setModels(d.models || []); setDefaultModel(d.default || ''); }).catch(() => {});
+    getJSON('/api/repos').then((d) => setRepos(d.repos || [])).catch((e) => setReposError(e.message)).finally(() => setReposLoading(false));
   }, []);
 
   const onLogout = useCallback(async () => {
@@ -630,8 +688,7 @@ function App() {
       <TopBar session={session} onLogout={onLogout} />
       {session && session.loggedIn ? (
         <div className="app-shell">
-          <ChatPanel models={models} defaultModel={defaultModel} />
-          <Dashboard session={session} onLogout={onLogout} />
+          <ChatPanel models={models} defaultModel={defaultModel} repos={repos} reposLoading={reposLoading} reposError={reposError} />
         </div>
       ) : (
         <ConnectScreen githubConfigured={session && session.githubConfigured} />
