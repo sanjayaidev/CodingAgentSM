@@ -165,6 +165,24 @@ function parseOwnerRepo(repoUrl) {
   return { owner: match[1], repo: match[2] };
 }
 
+function sanitizeCommitMessage(message) {
+  return String(message || 'update').replace(/\s+/g, ' ').trim().slice(0, 120) || 'update';
+}
+
+async function commitPendingChanges({ cwd, task, step }) {
+  const { stdout: statusBefore } = await run('git', ['status', '--short'], { cwd });
+  if (!statusBefore.trim()) {
+    return { committed: false, status: '' };
+  }
+
+  if (step) step('Staging and committing file changes');
+  await run('git', ['add', '-A'], { cwd });
+  await run('git', ['commit', '-m', `Aider: ${sanitizeCommitMessage(task)}`], { cwd });
+
+  const { stdout: statusAfter } = await run('git', ['status', '--short'], { cwd });
+  return { committed: true, status: statusAfter.trim() };
+}
+
 function isRepoQuestionPrompt(text = '') {
   const hasRepoTerms = /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(text);
   const hasActionVerb = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(text);
@@ -348,6 +366,8 @@ app.post('/agent/run', resolveAgentAuth, async (req, res) => {
       step(`Aider exited with error: ${aiderErr.message}`);
       aiderResult = { stdout: aiderErr.stdout || '', stderr: aiderErr.stderr || '' };
     }
+
+    const commitResult = await commitPendingChanges({ cwd: workDir, task, step });
 
     // Check whether aider actually produced any commits on top of base
     const { stdout: diffStat } = await run('git', ['diff', '--stat', `origin/${baseBranch}`, 'HEAD'], { cwd: workDir });
@@ -597,4 +617,5 @@ if (require.main === module) {
 module.exports = {
   app,
   collectRepositoryContext,
+  commitPendingChanges,
 };

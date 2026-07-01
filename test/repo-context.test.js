@@ -3,8 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
-const { collectRepositoryContext } = require('../server');
+const { collectRepositoryContext, commitPendingChanges } = require('../server');
 
 test('collectRepositoryContext reads key project files from a local repo', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-repo-'));
@@ -25,4 +26,22 @@ test('collectRepositoryContext reads key project files from a local repo', async
   assert.match(context, /public\/index\.html/);
   assert.match(context, /Demo Project/);
   assert.match(context, /console\.log\("hello"\)/);
+});
+
+test('commitPendingChanges stages and commits pending file edits', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-commit-'));
+  execFileSync('git', ['init'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tempDir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(tempDir, 'README.md'), '# test\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: tempDir, stdio: 'ignore' });
+
+  fs.writeFileSync(path.join(tempDir, 'new-file.txt'), 'created by test\n');
+
+  const result = await commitPendingChanges({ cwd: tempDir, task: 'Create a new file' });
+
+  assert.equal(result.committed, true);
+  const status = execFileSync('git', ['status', '--short'], { cwd: tempDir, encoding: 'utf8' });
+  assert.equal(status.trim(), '');
 });
