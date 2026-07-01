@@ -36,6 +36,15 @@
     outline: 2px solid var(--focus); outline-offset: 2px;
   }
   #root { min-height: 100vh; }
+  .dashboard-grid {
+    max-width: 1180px; margin: 0 auto; padding: 36px 24px 80px;
+    display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+    .dashboard-grid > *:last-child { position: static !important; max-height: none !important; }
+  }
   #root-fallback {
     display: flex; align-items: center; justify-content: center; min-height: 100vh;
     color: var(--text-faint); font-family: 'JetBrains Mono', monospace; font-size: 13px;
@@ -267,10 +276,10 @@ function Dashboard({ session, onLogout }) {
   }, [canRun, repoFullName, repos, task, baseBranch, model]);
 
   return (
-    <div style={{ maxWidth: 780, margin: '0 auto', padding: '36px 24px 80px' }}>
+    <div className="dashboard-grid">
       <div style={{
         background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12,
-        padding: 26, marginBottom: 22
+        padding: 26
       }}>
         <div style={{ display: 'grid', gap: 18 }}>
           <RepoSelect
@@ -294,17 +303,17 @@ function Dashboard({ session, onLogout }) {
             </div>
             <div>
               <label style={labelStyle}>Model</label>
-              <input
+              <select
                 className="mono"
                 style={inputStyle}
-                list="model-options"
                 value={model}
                 onChange={e => setModel(e.target.value)}
-                placeholder={defaultModel}
-              />
-              <datalist id="model-options">
-                {models.map(m => <option key={m} value={m} />)}
-              </datalist>
+              >
+                {models.length === 0 && <option value="">Loading…</option>}
+                {models.map(m => (
+                  <option key={m} value={m}>{m}{m === defaultModel ? ' (default)' : ''}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -334,9 +343,7 @@ function Dashboard({ session, onLogout }) {
         </div>
       </div>
 
-      {(running || result || runError) && (
-        <ResultPanel running={running} result={result} runError={runError} logEndRef={logEndRef} />
-      )}
+      <ResultPanel running={running} result={result} runError={runError} logEndRef={logEndRef} />
     </div>
   );
 }
@@ -354,15 +361,28 @@ function ResultPanel({ running, result, runError, logEndRef }) {
   const log = (result && result.log) || [];
   const changed = result && result.changed;
   const ok = result && result.ok;
+  const hasContent = running || result || runError;
 
   return (
     <div style={{
       background: '#0a0b0c', border: '1px solid var(--border)', borderRadius: 12,
-      padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5
+      padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5,
+      position: 'sticky', top: 24,
+      maxHeight: 'calc(100vh - 48px)', overflowY: 'auto'
     }}>
-      <div style={{ color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      <div style={{
+        color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase',
+        letterSpacing: '0.05em', position: 'sticky', top: -18, background: '#0a0b0c', paddingTop: 2
+      }}>
         Run log
       </div>
+
+      {!hasContent && (
+        <div style={{ color: 'var(--text-faint)', padding: '2px 0' }}>
+          Pick a repo, describe a task, and run — output streams in here.
+        </div>
+      )}
+
       {log.map((line, i) => (
         <div key={i} style={{ color: 'var(--text-dim)', padding: '2px 0', display: 'flex', gap: 8 }}>
           <span style={{ color: 'var(--text-faint)' }}>›</span>{line}
