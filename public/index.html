@@ -36,14 +36,37 @@
     outline: 2px solid var(--focus); outline-offset: 2px;
   }
   #root { min-height: 100vh; }
+  #root-fallback {
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    color: var(--text-faint); font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  }
+  #boot-error {
+    display: none; max-width: 560px; margin: 80px auto; padding: 20px 22px;
+    background: #1a1010; border: 1px solid #4a2323; border-radius: 10px;
+    color: #f47067; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6;
+    white-space: pre-wrap;
+  }
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root"><div id="root-fallback">Loading…</div></div>
+<div id="boot-error"></div>
 
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  // If React/Babel fail to load or throw before mounting, this turns a
+  // silent blank page into a visible, copyable error instead.
+  window.addEventListener('error', function (e) {
+    var box = document.getElementById('boot-error');
+    if (!box) return;
+    box.style.display = 'block';
+    box.textContent = 'UI failed to load: ' + (e.message || e.error || 'unknown error') +
+      (e.filename ? '\n(' + e.filename + ':' + e.lineno + ')' : '');
+  });
+</script>
+
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
