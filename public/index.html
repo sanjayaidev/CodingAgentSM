@@ -20,6 +20,7 @@
     --amber: #e3b341;
     --red: #f47067;
     --focus: #58a6ff;
+    --surface: #0a0b0c;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -36,14 +37,106 @@
     outline: 2px solid var(--focus); outline-offset: 2px;
   }
   #root { min-height: 100vh; }
+  .app-shell {
+    max-width: 1280px; margin: 0 auto; padding: 24px 24px 80px;
+    display: grid; gap: 22px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+  }
+  .chat-card {
+    padding: 22px;
+    display: grid; gap: 16px;
+  }
+  .chat-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .chat-title {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .chat-subtitle {
+    color: var(--text-dim); font-size: 13px; margin-top: 2px;
+  }
+  .toolbar-actions {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .ghost-btn {
+    border-radius: 8px; border: 1px solid var(--border); background: var(--panel-raised);
+    color: var(--text); padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  .chat-window {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    min-height: 340px; max-height: 480px; overflow: auto; padding: 14px;
+    display: grid; gap: 12px;
+  }
+  .message-row { display: flex; }
+  .message-row.user { justify-content: flex-end; }
+  .message-bubble {
+    max-width: min(84%, 760px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    line-height: 1.55; font-size: 14px; white-space: pre-wrap;
+  }
+  .message-row.user .message-bubble {
+    background: linear-gradient(135deg, rgba(126,231,135,0.16), rgba(88,166,255,0.12)); border-color: rgba(126,231,135,0.18);
+  }
+  .message-row.assistant .message-bubble {
+    background: var(--panel-raised);
+  }
+  .message-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin-bottom: 6px;
+  }
+  .message-markdown p { margin: 0 0 10px; }
+  .message-markdown p:last-child { margin-bottom: 0; }
+  .message-markdown ul, .message-markdown ol { margin: 8px 0 10px 18px; padding: 0; }
+  .message-markdown code { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0.1em 0.3em; }
+  .message-markdown pre { margin: 10px 0 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
+  .message-markdown pre code { display: block; padding: 12px 14px; overflow: auto; background: #08090a; }
+  .code-block { margin: 10px 0 0; }
+  .code-block-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-bottom: none; border-radius: 10px 10px 0 0;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .copy-btn {
+    border: none; border-radius: 6px; padding: 4px 8px; background: rgba(88,166,255,0.16); color: var(--text); cursor: pointer;
+    font-size: 12px;
+  }
+  .chat-empty {
+    color: var(--text-faint); padding: 26px 8px; text-align: center; line-height: 1.7;
+  }
+  .composer {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .composer-row {
+    display: flex; gap: 10px; align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1; min-height: 94px; resize: vertical; border-radius: 10px; padding: 11px 12px; background: var(--panel-raised);
+    color: var(--text); border: 1px solid var(--border);
+    font-size: 14px; line-height: 1.5;
+  }
+  .composer button.primary { border-radius: 10px; border: none; background: var(--accent); color: #07110a; padding: 11px 16px; cursor: pointer; font-weight: 700; }
+  .composer button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .model-select {
+    width: 100%; max-width: 240px; background: var(--panel-raised); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  .helper-text {
+    color: var(--text-faint); font-size: 12px; line-height: 1.5;
+  }
   .dashboard-grid {
-    max-width: 1180px; margin: 0 auto; padding: 36px 24px 80px;
+    max-width: 1280px; margin: 0 auto; padding: 0 24px 80px;
     display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 22px;
     align-items: start;
   }
   @media (max-width: 860px) {
-    .dashboard-grid { grid-template-columns: 1fr; }
+    .dashboard-grid { grid-template-columns: 1fr; padding: 0 18px 60px; }
     .dashboard-grid > *:last-child { position: static !important; max-height: none !important; }
+    .composer-row { flex-direction: column; align-items: stretch; }
+    .model-select { max-width: none; }
   }
   #root-fallback {
     display: flex; align-items: center; justify-content: center; min-height: 100vh;
@@ -62,8 +155,6 @@
 <div id="boot-error"></div>
 
 <script>
-  // If React/Babel fail to load or throw before mounting, this turns a
-  // silent blank page into a visible, copyable error instead.
   window.addEventListener('error', function (e) {
     var box = document.getElementById('boot-error');
     if (!box) return;
@@ -76,11 +167,12 @@
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef, useCallback } = React;
+const CHAT_STORAGE_KEY = 'coding-agent-chat-v1';
 
-// ---- tiny fetch helpers ----
 async function getJSON(url, opts) {
   const r = await fetch(url, { credentials: 'same-origin', ...opts });
   let data = null;
@@ -89,16 +181,6 @@ async function getJSON(url, opts) {
   return data;
 }
 
-function timeAgo(iso) {
-  if (!iso) return '';
-  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + 'm ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-  return Math.floor(s / 86400) + 'd ago';
-}
-
-// ---- branch/PR glyph, drawn once, reused as the app's signature mark ----
 function BranchMark({ size = 22, color = 'var(--accent)' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -122,7 +204,7 @@ function TopBar({ session, onLogout }) {
         <BranchMark />
         <div>
           <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.01em' }}>Coding Agent</div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>aider · NVIDIA NIM</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>chat · aider · NVIDIA NIM</div>
         </div>
       </div>
       {session && session.loggedIn ? (
@@ -175,6 +257,16 @@ function ConnectScreen({ githubConfigured }) {
   );
 }
 
+const labelStyle = {
+  display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
+  textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8
+};
+const inputStyle = {
+  width: '100%', background: 'var(--panel-raised)', border: '1px solid var(--border)',
+  color: 'var(--text)', borderRadius: 8, padding: '11px 12px', fontSize: 14,
+  fontFamily: 'inherit'
+};
+
 function RepoSelect({ repos, value, onChange, loading, error }) {
   return (
     <div>
@@ -186,10 +278,8 @@ function RepoSelect({ repos, value, onChange, loading, error }) {
       ) : (
         <select value={value} onChange={onChange} style={inputStyle}>
           <option value="">Select a repo…</option>
-          {repos.map(r => (
-            <option key={r.fullName} value={r.fullName}>
-              {r.fullName}{r.private ? ' 🔒' : ''}
-            </option>
+          {repos.map((r) => (
+            <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>
           ))}
         </select>
       )}
@@ -197,46 +287,230 @@ function RepoSelect({ repos, value, onChange, loading, error }) {
   );
 }
 
-const labelStyle = {
-  display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
-  textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8
-};
-const inputStyle = {
-  width: '100%', background: 'var(--panel-raised)', border: '1px solid var(--border)',
-  color: 'var(--text)', borderRadius: 8, padding: '11px 12px', fontSize: 14,
-  fontFamily: 'inherit'
-};
+function buildMarkdownHtml(markdown) {
+  if (!window.marked) return `<p>${String(markdown || '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}</p>`;
+  const renderer = new window.marked.Renderer();
+  renderer.code = function ({ text, lang }) {
+    const language = lang || '';
+    const code = String(text).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const encoded = encodeURIComponent(text);
+    return `<div class="code-block"><div class="code-block-toolbar"><span>${language || 'code'}</span><button type="button" class="copy-btn" data-code="${encoded}">Copy</button></div><pre><code class="language-${language}">${code}</code></pre></div>`;
+  };
+  const html = window.marked.parse(markdown || '', { breaks: true, gfm: true, renderer });
+  return typeof html === 'string' ? html : '';
+}
+
+function MessageContent({ content }) {
+  const [html, setHtml] = useState('');
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    setHtml(buildMarkdownHtml(content));
+  }, [content]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const buttons = containerRef.current.querySelectorAll('.copy-btn');
+    const handlers = [];
+    buttons.forEach((button) => {
+      const handler = async () => {
+        const raw = button.getAttribute('data-code') || '';
+        const text = decodeURIComponent(raw);
+        try {
+          await navigator.clipboard.writeText(text);
+          const prev = button.textContent;
+          button.textContent = 'Copied';
+          window.setTimeout(() => { button.textContent = prev; }, 1200);
+        } catch (_) {}
+      };
+      button.addEventListener('click', handler);
+      handlers.push(handler);
+    });
+    return () => {
+      buttons.forEach((button, index) => button.removeEventListener('click', handlers[index]));
+    };
+  }, [html]);
+
+  return <div ref={containerRef} className="message-markdown" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function ChatPanel({ models, defaultModel }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [selectedModel, setSelectedModel] = useState(defaultModel || '');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CHAT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.messages) setMessages(parsed.messages);
+        if (parsed.model) setSelectedModel(parsed.model);
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    if (!defaultModel) return;
+    setSelectedModel((prev) => prev || defaultModel);
+  }, [defaultModel]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel }));
+    } catch (_) {}
+  }, [messages, selectedModel]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  const handleSend = useCallback(async (event) => {
+    event.preventDefault();
+    const userPrompt = input.trim();
+    if (!userPrompt || loading) return;
+
+    const nextMessages = [...messages, { role: 'user', content: userPrompt }];
+    setMessages(nextMessages);
+    setInput('');
+    setError('');
+    setLoading(true);
+
+    try {
+      const data = await getJSON('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: 'You are a helpful coding assistant. Answer clearly in markdown. If asked for code, provide concise code blocks. When asked about a repository, explain what it does and mention likely entry points.' },
+            ...nextMessages,
+          ],
+          model: selectedModel || defaultModel || undefined,
+        }),
+      });
+      setMessages([...nextMessages, { role: 'assistant', content: data.message || 'No response returned.' }]);
+    } catch (e) {
+      setMessages([...nextMessages, { role: 'assistant', content: `Sorry, I could not respond. ${e.message}` }]);
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [defaultModel, input, loading, messages, selectedModel]);
+
+  const resetChat = useCallback(() => {
+    setMessages([]);
+    setInput('');
+    setError('');
+    try {
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel }));
+    } catch (_) {}
+  }, [selectedModel]);
+
+  return (
+    <div className="card chat-card">
+      <div className="chat-toolbar">
+        <div className="chat-header">
+          <BranchMark size={18} />
+          <div>
+            <div className="chat-title">Ask anything</div>
+            <div className="chat-subtitle">General questions, explanations, helper code, and repo guidance in markdown.</div>
+          </div>
+        </div>
+        <div className="toolbar-actions">
+          <select className="model-select mono" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
+            {models.length === 0 && <option value="">Loading…</option>}
+            {models.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <button className="ghost-btn" onClick={resetChat}>New chat</button>
+        </div>
+      </div>
+
+      <div className="chat-window">
+        {messages.length === 0 && !loading && (
+          <div className="chat-empty">
+            Ask what this repository does, request code, or describe a change you want made.<br />
+            The reply renders as markdown and code blocks include a copy button.
+          </div>
+        )}
+        {messages.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
+            <div className="message-bubble">
+              <div className="message-label">{message.role === 'user' ? 'You' : 'Assistant'}</div>
+              <MessageContent content={message.content} />
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="message-row assistant">
+            <div className="message-bubble">
+              <div className="message-label">Assistant</div>
+              <div className="helper-text">Thinking…</div>
+            </div>
+          </div>
+        )}
+        <div ref={endRef} />
+      </div>
+
+      <form className="composer" onSubmit={handleSend}>
+        <div className="composer-row">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about the repo, request code, or describe a change…"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                handleSend(event);
+              }
+            }}
+          />
+          <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
+        </div>
+        {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">Responses are kept locally in this browser so your current chat survives refreshes.</div>}
+      </form>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span className="mono" style={{
+      display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(12,14,15,0.35)',
+      borderTopColor: '#0c0e0f', borderRadius: '50%', animation: 'spin 0.7s linear infinite'
+    }} />
+  );
+}
 
 function Dashboard({ session, onLogout }) {
   const [repos, setRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(true);
   const [reposError, setReposError] = useState(null);
-
   const [models, setModels] = useState([]);
   const [defaultModel, setDefaultModel] = useState('');
-
   const [repoFullName, setRepoFullName] = useState('');
   const [baseBranch, setBaseBranch] = useState('main');
   const [model, setModel] = useState('');
   const [task, setTask] = useState('');
-
   const [running, setRunning] = useState(false);
-  const [result, setResult] = useState(null); // { ok, changed, prUrl, log, error, ... }
+  const [result, setResult] = useState(null);
   const [runError, setRunError] = useState(null);
   const logEndRef = useRef(null);
 
   useEffect(() => {
     getJSON('/api/repos')
-      .then(d => setRepos(d.repos || []))
-      .catch(e => setReposError(e.message))
+      .then((d) => setRepos(d.repos || []))
+      .catch((e) => setReposError(e.message))
       .finally(() => setReposLoading(false));
     getJSON('/api/models')
-      .then(d => { setModels(d.models || []); setDefaultModel(d.default || ''); setModel(d.default || ''); })
+      .then((d) => { setModels(d.models || []); setDefaultModel(d.default || ''); setModel(d.default || ''); })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    const repo = repos.find(r => r.fullName === repoFullName);
+    const repo = repos.find((r) => r.fullName === repoFullName);
     if (repo) setBaseBranch(repo.defaultBranch || 'main');
   }, [repoFullName, repos]);
 
@@ -251,7 +525,7 @@ function Dashboard({ session, onLogout }) {
     setRunning(true);
     setResult(null);
     setRunError(null);
-    const repo = repos.find(r => r.fullName === repoFullName);
+    const repo = repos.find((r) => r.fullName === repoFullName);
     try {
       const data = await getJSON('/agent/run', {
         method: 'POST',
@@ -277,83 +551,33 @@ function Dashboard({ session, onLogout }) {
 
   return (
     <div className="dashboard-grid">
-      <div style={{
-        background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 12,
-        padding: 26
-      }}>
+      <div className="card" style={{ padding: 26 }}>
         <div style={{ display: 'grid', gap: 18 }}>
-          <RepoSelect
-            repos={repos}
-            value={repoFullName}
-            onChange={e => setRepoFullName(e.target.value)}
-            loading={reposLoading}
-            error={reposError}
-          />
-
+          <RepoSelect repos={repos} value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} loading={reposLoading} error={reposError} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <label style={labelStyle}>Base branch</label>
-              <input
-                className="mono"
-                style={inputStyle}
-                value={baseBranch}
-                onChange={e => setBaseBranch(e.target.value)}
-                placeholder="main"
-              />
+              <input className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)} placeholder="main" />
             </div>
             <div>
               <label style={labelStyle}>Model</label>
-              <select
-                className="mono"
-                style={inputStyle}
-                value={model}
-                onChange={e => setModel(e.target.value)}
-              >
+              <select className="mono" style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)}>
                 {models.length === 0 && <option value="">Loading…</option>}
-                {models.map(m => (
-                  <option key={m} value={m}>{m}{m === defaultModel ? ' (default)' : ''}</option>
-                ))}
+                {models.map((m) => <option key={m} value={m}>{m}{m === defaultModel ? ' (default)' : ''}</option>)}
               </select>
             </div>
           </div>
-
           <div>
             <label style={labelStyle}>Task</label>
-            <textarea
-              style={{ ...inputStyle, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }}
-              value={task}
-              onChange={e => setTask(e.target.value)}
-              placeholder="Add input validation to the signup form and return a 400 with a clear message on invalid email"
-            />
+            <textarea style={{ ...inputStyle, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }} value={task} onChange={(e) => setTask(e.target.value)} placeholder="Add input validation to the signup form and return a 400 with a clear message on invalid email" />
           </div>
-
-          <button
-            onClick={runAgent}
-            disabled={!canRun}
-            style={{
-              justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8,
-              background: canRun ? 'var(--accent)' : 'var(--panel-raised)',
-              color: canRun ? '#0c0e0f' : 'var(--text-faint)',
-              border: 'none', borderRadius: 8, padding: '11px 22px',
-              fontWeight: 700, fontSize: 14, cursor: canRun ? 'pointer' : 'not-allowed'
-            }}
-          >
+          <button onClick={runAgent} disabled={!canRun} style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: canRun ? 'var(--accent)' : 'var(--panel-raised)', color: canRun ? '#0c0e0f' : 'var(--text-faint)', border: 'none', borderRadius: 8, padding: '11px 22px', fontWeight: 700, fontSize: 14, cursor: canRun ? 'pointer' : 'not-allowed' }}>
             {running ? (<><Spinner /> Running…</>) : 'Run agent'}
           </button>
         </div>
       </div>
-
       <ResultPanel running={running} result={result} runError={runError} logEndRef={logEndRef} />
     </div>
-  );
-}
-
-function Spinner() {
-  return (
-    <span className="mono" style={{
-      display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(12,14,15,0.35)',
-      borderTopColor: '#0c0e0f', borderRadius: '50%', animation: 'spin 0.7s linear infinite'
-    }} />
   );
 }
 
@@ -364,70 +588,16 @@ function ResultPanel({ running, result, runError, logEndRef }) {
   const hasContent = running || result || runError;
 
   return (
-    <div style={{
-      background: '#0a0b0c', border: '1px solid var(--border)', borderRadius: 12,
-      padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5,
-      position: 'sticky', top: 24,
-      maxHeight: 'calc(100vh - 48px)', overflowY: 'auto'
-    }}>
-      <div style={{
-        color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase',
-        letterSpacing: '0.05em', position: 'sticky', top: -18, background: '#0a0b0c', paddingTop: 2
-      }}>
-        Run log
-      </div>
-
-      {!hasContent && (
-        <div style={{ color: 'var(--text-faint)', padding: '2px 0' }}>
-          Pick a repo, describe a task, and run — output streams in here.
-        </div>
-      )}
-
-      {log.map((line, i) => (
-        <div key={i} style={{ color: 'var(--text-dim)', padding: '2px 0', display: 'flex', gap: 8 }}>
-          <span style={{ color: 'var(--text-faint)' }}>›</span>{line}
-        </div>
-      ))}
-      {running && (
-        <div style={{ color: 'var(--accent)', padding: '2px 0', display: 'flex', gap: 8 }}>
-          <span>›</span> working…
-        </div>
-      )}
-
-      {runError && !result && (
-        <div style={{ color: 'var(--red)', marginTop: 10 }}>{runError}</div>
-      )}
-
-      {result && result.reconnectRequired && (
-        <div style={{ color: 'var(--red)', marginTop: 12 }}>
-          Your GitHub connection expired. Reconnecting…
-        </div>
-      )}
-
-      {result && ok && changed === false && (
-        <div style={{ color: 'var(--amber)', marginTop: 12 }}>
-          No changes were needed for this task.
-        </div>
-      )}
-
-      {result && ok && changed && result.prUrl && (
-        <div style={{
-          marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', gap: 10
-        }}>
-          <span style={{ color: 'var(--accent)' }}>✓ PR opened</span>
-          <a href={result.prUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--focus)' }}>
-            {result.prUrl}
-          </a>
-        </div>
-      )}
-
-      {result && result.ok === false && !result.reconnectRequired && (
-        <div style={{ color: 'var(--red)', marginTop: 12 }}>
-          {result.error}
-        </div>
-      )}
-
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5, position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
+      <div style={{ color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: -18, background: 'var(--surface)', paddingTop: 2 }}>Run log</div>
+      {!hasContent && <div style={{ color: 'var(--text-faint)', padding: '2px 0' }}>Pick a repo, describe a task, and run — output streams in here.</div>}
+      {log.map((line, i) => <div key={i} style={{ color: 'var(--text-dim)', padding: '2px 0', display: 'flex', gap: 8 }}><span style={{ color: 'var(--text-faint)' }}>›</span>{line}</div>)}
+      {running && <div style={{ color: 'var(--accent)', padding: '2px 0', display: 'flex', gap: 8 }}><span>›</span> working…</div>}
+      {runError && !result && <div style={{ color: 'var(--red)', marginTop: 10 }}>{runError}</div>}
+      {result && result.reconnectRequired && <div style={{ color: 'var(--red)', marginTop: 12 }}>Your GitHub connection expired. Reconnecting…</div>}
+      {result && ok && changed === false && <div style={{ color: 'var(--amber)', marginTop: 12 }}>No changes were needed for this task.</div>}
+      {result && ok && changed && result.prUrl && <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ color: 'var(--accent)' }}>✓ PR opened</span><a href={result.prUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--focus)' }}>{result.prUrl}</a></div>}
+      {result && result.ok === false && !result.reconnectRequired && <div style={{ color: 'var(--red)', marginTop: 12 }}>{result.error}</div>}
       <div ref={logEndRef} />
     </div>
   );
@@ -436,12 +606,17 @@ function ResultPanel({ running, result, runError, logEndRef }) {
 function App() {
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
 
   const loadSession = useCallback(() => {
     getJSON('/api/session').then(setSession).catch(() => setSession({ loggedIn: false })).finally(() => setLoadingSession(false));
   }, []);
 
   useEffect(() => { loadSession(); }, [loadSession]);
+  useEffect(() => {
+    getJSON('/api/models').then((d) => { setModels(d.models || []); setDefaultModel(d.default || ''); }).catch(() => {});
+  }, []);
 
   const onLogout = useCallback(async () => {
     await fetch('/auth/logout', { method: 'POST' });
@@ -453,9 +628,14 @@ function App() {
   return (
     <React.Fragment>
       <TopBar session={session} onLogout={onLogout} />
-      {session && session.loggedIn
-        ? <Dashboard session={session} onLogout={onLogout} />
-        : <ConnectScreen githubConfigured={session && session.githubConfigured} />}
+      {session && session.loggedIn ? (
+        <div className="app-shell">
+          <ChatPanel models={models} defaultModel={defaultModel} />
+          <Dashboard session={session} onLogout={onLogout} />
+        </div>
+      ) : (
+        <ConnectScreen githubConfigured={session && session.githubConfigured} />
+      )}
     </React.Fragment>
   );
 }

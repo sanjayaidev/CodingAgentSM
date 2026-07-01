@@ -25,18 +25,37 @@ const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
 // calls": aider talks to NVIDIA NIM using these, never anything client-side.
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NIM_API_KEY || '';
-const DEFAULT_MODEL = process.env.NIM_MODEL || 'qwen/qwen2.5-coder-32b-instruct';
-
-// A small curated set of models known to work well for coding tasks via
-// NIM. Verify these exact ids against your own NIM account's catalog
-// (README note) before relying on any beyond the default.
-const CODING_MODELS = [
-  DEFAULT_MODEL,
-  'meta/llama-3.3-70b-instruct',
+const ALLOWED_MODELS = [
+  'abacusai/dracarys-llama-3.1-70b-instruct',
+  'deepseek-ai/deepseek-v4-flash',
+  'deepseek-ai/deepseek-v4-pro',
   'meta/llama-3.1-70b-instruct',
+  'meta/llama-3.1-8b-instruct',
+  'meta/llama-3.2-11b-vision-instruct',
+  'meta/llama-3.2-1b-instruct',
+  'meta/llama-3.2-3b-instruct',
+  'meta/llama-3.2-90b-vision-instruct',
+  'meta/llama-3.3-70b-instruct',
+  'meta/llama-4-maverick-17b-128e-instruct',
+  'meta/llama-guard-4-12b',
+  'mistralai/ministral-14b-instruct-2512',
   'mistralai/mistral-large-3-675b-instruct-2512',
+  'mistralai/mistral-medium-3.5-128b',
+  'mistralai/mistral-small-4-119b-2603',
+  'mistralai/mixtral-8x7b-instruct-v0.1',
   'moonshotai/kimi-k2.6',
-].filter((v, i, arr) => arr.indexOf(v) === i);
+  'nvidia/llama-3.1-nemoguard-8b-content-safety',
+  'nvidia/llama-3.1-nemoguard-8b-topic-control',
+];
+const DEFAULT_MODEL = process.env.NIM_MODEL && ALLOWED_MODELS.includes(process.env.NIM_MODEL)
+  ? process.env.NIM_MODEL
+  : 'meta/llama-3.3-70b-instruct';
+
+function isAllowedModel(modelId) {
+  return ALLOWED_MODELS.includes(modelId);
+}
+
+const CODING_MODELS = [...new Set([DEFAULT_MODEL, ...ALLOWED_MODELS])];
 
 // Fallback GitHub token if no one is connected via the UI and no per-request
 // token is supplied (server-to-server callers only).
@@ -430,7 +449,44 @@ app.get('/api/repos', async (req, res) => {
 });
 
 app.get('/api/models', (req, res) => {
-  res.json({ models: CODING_MODELS, default: DEFAULT_MODEL });
+  res.json({ models: ALLOWED_MODELS, default: DEFAULT_MODEL });
+});
+
+app.post('/api/chat', async (req, res) => {
+  const { messages = [], model } = req.body || {};
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
+  }
+  if (!NIM_API_KEY) {
+    return res.status(500).json({ error: 'NIM_API_KEY is not configured on the server' });
+  }
+
+  const selectedModel = isAllowedModel(model) ? model : DEFAULT_MODEL;
+  try {
+    const response = await fetch(`${NIM_API_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${NIM_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        messages,
+        temperature: 0.2,
+        max_tokens: 1800,
+      }),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error?.message || `NVIDIA API request failed (${response.status})`);
+    }
+
+    const content = data.choices?.[0]?.message?.content || '';
+    return res.json({ message: content, model: selectedModel });
+  } catch (err) {
+    return res.status(502).json({ error: err.message || 'Failed to reach NVIDIA NIM' });
+  }
 });
 
 // ---- static UI ----
