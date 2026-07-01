@@ -492,8 +492,8 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     const isRepoQuestion = Boolean(selectedRepo) && /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(userPrompt);
     const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
     const initialSteps = shouldRunAgent
-      ? ['Preparing request', 'Cloning repository', 'Reading relevant files', 'Sending context to AI', 'Applying changes', 'Opening pull request']
-      : ['Preparing request', 'Inspecting repository', 'Reading key files', 'Generating answer'];
+      ? ['Preparing request', 'Cloning repository', 'Reading relevant files', 'Writing files', 'Committing changes', 'Opening pull request']
+      : ['Preparing request', 'Inspecting repository', 'Reading key files', 'Sending context to AI', 'Generating answer'];
     launchActivityFlow(initialSteps);
 
     try {
