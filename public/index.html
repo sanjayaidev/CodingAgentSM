@@ -828,7 +828,7 @@ function App() {
           <ChatPanel models={models} defaultModel={defaultModel} repos={repos} reposLoading={reposLoading} reposError={reposError} />
         </div>
       ) : (
-        <ConnectScreen githubConfigured={session && session.githubConfigured} />
+        <ConnectScreen githubConfigured={true} />
       )}
     </React.Fragment>
   );
