@@ -546,7 +546,7 @@ function cleanup(dir) {
 
 app.get('/health', (req, res) => res.json({
   ok: true,
-  githubConfigured: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
+  githubConfigured: true,
   appBaseUrl: APP_BASE_URL || null,
   railwayPublicDomain: RAILWAY_PUBLIC_DOMAIN || null,
 }));
@@ -554,7 +554,6 @@ app.get('/health', (req, res) => res.json({
 // ---- GitHub OAuth (connect account) ----
 
 app.get('/auth/github', (req, res) => {
-  if (!GITHUB_CLIENT_ID) return res.status(500).send('GITHUB_CLIENT_ID is not configured on the server');
   const state = crypto.randomBytes(16).toString('hex');
   setCookie(res, 'oauth_state', state, { maxAge: 600 });
   const redirectUri = `${baseUrlFor(req)}/auth/github/callback`;
@@ -616,7 +615,7 @@ app.post('/auth/logout', async (req, res) => {
 
 app.get('/api/session', async (req, res) => {
   const session = await getSession(req);
-  if (!session) return res.json({ loggedIn: false, githubConfigured: Boolean(GITHUB_CLIENT_ID), persistence: db.enabled });
+  if (!session) return res.json({ loggedIn: false, githubConfigured: true, persistence: db.enabled });
   res.json({ loggedIn: true, githubLogin: session.githubLogin, persistence: db.enabled });
 });
 
