@@ -652,6 +652,33 @@ app.get('/api/repos', async (req, res) => {
   }
 });
 
+app.get('/api/branches', async (req, res) => {
+  const session = await getSession(req);
+  if (!session) return res.status(401).json({ error: 'Not connected to GitHub yet' });
+  const repoFullName = req.query.repo;
+  if (!repoFullName || !repoFullName.includes('/')) {
+    return res.status(400).json({ error: 'repo query param is required, e.g. ?repo=owner/name' });
+  }
+  try {
+    const branches = [];
+    for (let page = 1; page <= 5; page++) {
+      const r = await fetch(`https://api.github.com/repos/${repoFullName}/branches?per_page=100&page=${page}`, {
+        headers: { Authorization: `Bearer ${session.githubToken}`, 'User-Agent': 'coding-agent' },
+      });
+      if (!r.ok) {
+        const errBody = await r.json().catch(() => ({}));
+        return res.status(r.status).json({ error: errBody.message || 'Failed to list branches from GitHub' });
+      }
+      const batch = await r.json();
+      branches.push(...batch);
+      if (batch.length < 100) break;
+    }
+    res.json({ branches: branches.map((b) => b.name) });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 app.get('/api/models', (req, res) => {
   res.json({ models: ALLOWED_MODELS, default: DEFAULT_MODEL });
 });
