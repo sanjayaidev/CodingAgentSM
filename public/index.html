@@ -402,6 +402,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   const [selectedModel, setSelectedModel] = useState(defaultModel || '');
   const [repoFullName, setRepoFullName] = useState('');
   const [baseBranch, setBaseBranch] = useState('main');
+  const [branches, setBranches] = useState([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [activitySteps, setActivitySteps] = useState([]);
@@ -429,7 +432,32 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
 
   useEffect(() => {
     const repo = repos.find((r) => r.fullName === repoFullName);
-    if (repo) setBaseBranch(repo.defaultBranch || 'main');
+    if (!repo) { setBranches([]); return; }
+
+    // Pre-fill with the known default branch immediately so the field isn't
+    // empty while the real branch list loads.
+    setBaseBranch((prev) => prev || repo.defaultBranch || 'main');
+
+    let cancelled = false;
+    setBranchesLoading(true);
+    setBranchesError('');
+    getJSON(`/api/branches?repo=${encodeURIComponent(repo.fullName)}`)
+      .then((d) => {
+        if (cancelled) return;
+        const names = d.branches || [];
+        setBranches(names);
+        // Snap to a branch that actually exists on this repo, preferring
+        // whatever was already selected, then the repo's real default branch.
+        setBaseBranch((prev) => {
+          if (names.includes(prev)) return prev;
+          if (repo.defaultBranch && names.includes(repo.defaultBranch)) return repo.defaultBranch;
+          return names[0] || repo.defaultBranch || 'main';
+        });
+      })
+      .catch((e) => { if (!cancelled) setBranchesError(e.message); })
+      .finally(() => { if (!cancelled) setBranchesLoading(false); });
+
+    return () => { cancelled = true; };
   }, [repoFullName, repos]);
 
   useEffect(() => {
@@ -550,7 +578,11 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   }, [baseBranch, repoFullName, selectedModel, stopActivityFlow]);
 
   const selectedRepo = repos.find((r) => r.fullName === repoFullName);
-  const branchOptions = [selectedRepo?.defaultBranch, 'main', 'master', 'develop', 'staging'].filter(Boolean);
+  // Real branches from GitHub; fall back to just the current value while
+  // loading (or if the lookup failed) so the select isn't empty.
+  const branchOptions = branches.length > 0
+    ? branches
+    : [baseBranch, selectedRepo?.defaultBranch].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
 
   return (
     <div className="chat-layout">
@@ -589,9 +621,19 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
             </div>
             <div>
               <label style={labelStyle}>Base branch</label>
-              <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
-                {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              <select
+                className="mono"
+                style={inputStyle}
+                value={baseBranch}
+                onChange={(e) => setBaseBranch(e.target.value)}
+                disabled={branchesLoading || !repoFullName}
+              >
+                {branchesLoading && <option>Loading branches…</option>}
+                {!branchesLoading && branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
               </select>
+              {branchesError && (
+                <div className="mono" style={{ color: 'var(--red)', fontSize: 12, marginTop: 4 }}>{branchesError}</div>
+              )}
             </div>
           </div>
         </div>
