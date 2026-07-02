@@ -622,7 +622,7 @@ app.get('/api/session', async (req, res) => {
 // ---- repo picker ----
 
 app.get('/api/repos', async (req, res) => {
-  const session = getSession(req);
+  const session = await getSession(req);
   if (!session) return res.status(401).json({ error: 'Not connected to GitHub yet' });
   try {
     const repos = [];
