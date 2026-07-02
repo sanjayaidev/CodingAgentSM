@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./lib/db');
+const { resolveBaseUrl } = require('./lib/github-oauth');
 
 const app = express();
 // Railway terminates TLS and forwards requests internally over HTTP; without
@@ -70,6 +71,7 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '';
 // Public URL this app is deployed at, e.g. https://your-app.up.railway.app
 // Falls back to inferring from the incoming request if unset.
 const APP_BASE_URL = process.env.APP_BASE_URL || '';
+const RAILWAY_PUBLIC_DOMAIN = process.env.RAILWAY_PUBLIC_DOMAIN || '';
 
 const WORKSPACES_DIR = path.join(__dirname, 'workspaces');
 if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
@@ -139,7 +141,12 @@ async function getSession(req) {
 }
 
 function baseUrlFor(req) {
-  return APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const baseUrl = resolveBaseUrl({
+    appBaseUrl: APP_BASE_URL,
+    railwayPublicDomain: RAILWAY_PUBLIC_DOMAIN,
+    req,
+  });
+  return baseUrl;
 }
 
 // Auth for /agent/run: accepts EITHER a valid x-api-key (server-to-server
@@ -537,7 +544,12 @@ function cleanup(dir) {
   } catch (_) {}
 }
 
-app.get('/health', (req, res) => res.json({ ok: true }));
+app.get('/health', (req, res) => res.json({
+  ok: true,
+  githubConfigured: Boolean(GITHUB_CLIENT_ID && GITHUB_CLIENT_SECRET),
+  appBaseUrl: APP_BASE_URL || null,
+  railwayPublicDomain: RAILWAY_PUBLIC_DOMAIN || null,
+}));
 
 // ---- GitHub OAuth (connect account) ----
 

@@ -6,6 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const { collectRepositoryContext, commitPendingChanges } = require('../server');
+const { resolveBaseUrl } = require('../lib/github-oauth');
 
 test('collectRepositoryContext reads key project files from a local repo', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-repo-'));
@@ -26,6 +27,20 @@ test('collectRepositoryContext reads key project files from a local repo', async
   assert.match(context, /public\/index\.html/);
   assert.match(context, /Demo Project/);
   assert.match(context, /console\.log\("hello"\)/);
+});
+
+test('resolveBaseUrl prefers Railway public domain when APP_BASE_URL is unset', () => {
+  const req = {
+    protocol: 'http',
+    headers: { host: 'localhost:3000' },
+    get(name) {
+      return this.headers[name];
+    },
+  };
+
+  assert.equal(resolveBaseUrl({ railwayPublicDomain: 'my-app.up.railway.app', req }), 'https://my-app.up.railway.app');
+  assert.equal(resolveBaseUrl({ appBaseUrl: 'https://example.com', req }), 'https://example.com');
+  assert.equal(resolveBaseUrl({ req }), 'http://localhost:3000');
 });
 
 test('commitPendingChanges stages and commits pending file edits', async () => {
