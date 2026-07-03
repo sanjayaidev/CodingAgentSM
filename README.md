@@ -92,6 +92,73 @@ Response (on success):
 
 If aider decides no change is needed, `changed` will be `false` and no PR is opened.
 
+Every run also returns a `tokens` field: `{ approxContextTokens, aiderTokenSummary }`.
+`approxContextTokens` is a rough (chars/4) estimate of the conversation context folded into
+the aider task (see `context` below) — aider manages its own LLM calls internally, so this
+process doesn't get an exact count back from it the way it does for `/api/chat`.
+`aiderTokenSummary` is only populated if aider's own console output included a
+"Tokens: X sent, Y received" line.
+
+### Persisting chat context into the agent run
+
+Pass the prior conversation as `context` (an array of `{role, content}` messages, same shape
+as `/api/chat`) so a fresh aider clone can resolve references like "the text you gave me
+earlier":
+
+```json
+{
+  "repoUrl": "...",
+  "task": "Use the text I gave you above as the new footer copy",
+  "context": [
+    { "role": "user", "content": "..." },
+    { "role": "assistant", "content": "..." }
+  ]
+}
+```
+
+## API reference (for external callers)
+
+Every endpoint below accepts either a browser session cookie (from "Connect GitHub") or an
+`x-api-key: $AGENT_API_KEY` header — pass whichever you have. CORS is enabled, so these can be
+called directly from another service/browser origin.
+
+| Method & path              | Purpose                                                                 |
+|-----------------------------|--------------------------------------------------------------------------|
+| `POST /agent/run`           | Buffered agent run — clone, aider, commit, push, open PR. Returns once done. |
+| `POST /agent/run/stream`    | Same as above, but streams newline-delimited JSON progress events (`{"type":"step",...}`, then one `{"type":"done"|"error",...}`). This is what the built-in UI's activity panel now consumes for real progress. |
+| `POST /api/chat`            | Plain chat completion via NIM. Returns `{ message, usage, contextWindow, contextUsedFraction }` — `usage` is the exact `prompt_tokens`/`completion_tokens`/`total_tokens` from NIM for that call, since the full message history is re-sent every turn this **is** your current context-window usage. |
+| `GET /api/models`           | List of allowed NIM models + the default. |
+| `POST /api/console/run`     | Run `python3`/`python`/`pip`/`pip3`/`node`/`npm`/`bash`/`sh` with args, streamed as NDJSON (`stdout`/`stderr`/`exit` events). See "Execution console" below. |
+| `DELETE /api/console/:id`   | Delete a console workspace. |
+
+`NIM_CONTEXT_WINDOW` (env var, default `32768`) controls the context-window size used to
+compute `contextUsedFraction` — set it to match whatever model you're actually using so the
+percentage is meaningful.
+
+## Execution console (Python / bash / npm)
+
+`POST /api/console/run` runs one allowlisted command (`python3`, `python`, `pip`, `pip3`,
+`node`, `npm`, `bash`, `sh`) with an argv array — never a shell string, so there's no
+shell-injection surface through `args`:
+
+```bash
+curl -N -X POST http://localhost:3000/api/console/run \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $AGENT_API_KEY" \
+  -d '{"command": "python3", "args": ["-c", "print(1+1)"]}'
+```
+
+Pass back the `consoleId` from the `start` event on later calls to reuse the same working
+directory (e.g. keep a venv or `node_modules` around between calls). Idle console workspaces
+are swept after 2 hours; `DELETE /api/console/:id` removes one immediately.
+
+**This is a first version, not a sandbox.** Commands run directly inside this app's own
+container with whatever filesystem/network access that container already has — there's no
+per-run isolation (no separate container, user, or network policy per command). Anyone with a
+valid `x-api-key` or session can run arbitrary code inside it. That's fine for a personal
+deployment behind a private `AGENT_API_KEY`; before exposing this more broadly, put real
+sandboxing in front of it (e.g. a per-run container/VM with resource and network limits).
+
 ## Deploy on Railway
 
 1. Push this folder to a GitHub repo (or connect Railway directly to your repo).
@@ -126,7 +193,12 @@ around if you later want a Vercel frontend talking to this same `/agent/run` end
   project's test suite before opening the PR. That's the next piece to add (spin up the app,
   run tests, feed failures back to aider before pushing).
 - **Concurrency**: each request gets its own `workspaces/<repo>-<runId>` directory, so concurrent
-  requests against different repos (or even the same repo) won't collide. Workspaces are deleted
-  after each run, success or failure.
+  requests against different repos (or even the same repo) won't collide. Workspaces (and aider's
+  log dir alongside them) are deleted after each run, success or failure.
 - **maxBuffer**: git/aider output is capped at 50MB per command; raise `maxBuffer` in `run()` in
   `server.js` if you hit truncation on very large diffs.
+- **Aider's chat/input history files never enter the repo**: they're written to a directory
+  outside the clone (`--chat-history-file` / `--input-history-file`) and `commitPendingChanges`
+  additionally excludes any `.aider*` files from `git add` as a second layer of defense, so
+  they can't end up committed into a PR even if something else drops one into the working tree.
+- **Console execution has no sandboxing beyond the host container** — see "Execution console" above.
