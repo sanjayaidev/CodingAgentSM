@@ -565,7 +565,6 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
 
     const selectedRepo = repos.find((r) => r.fullName === repoFullName);
     const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
-    const isRepoQuestion = Boolean(selectedRepo) && /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(userPrompt);
     const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
 
     try {
@@ -640,8 +639,8 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
               ...nextMessages,
             ],
             model: selectedModel || defaultModel || undefined,
-            repoUrl: isRepoQuestion && selectedRepo ? selectedRepo.htmlUrl : undefined,
-            baseBranch: isRepoQuestion ? baseBranch : undefined,
+            repoUrl: selectedRepo ? selectedRepo.htmlUrl : undefined,
+            baseBranch: selectedRepo ? baseBranch : undefined,
           }),
         });
         appendStep('Response received');
