@@ -14,6 +14,19 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '2mb' }));
 
+// CORS — this app is meant to be callable as an API from external services
+// (per-request auth is via x-api-key or session cookie, see resolveAgentAuth
+// / resolveApiAuth below), so we allow cross-origin requests here rather
+// than locking responses to same-origin.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -52,6 +65,20 @@ const ALLOWED_MODELS = [
 const DEFAULT_MODEL = process.env.NIM_MODEL && ALLOWED_MODELS.includes(process.env.NIM_MODEL)
   ? process.env.NIM_MODEL
   : 'moonshotai/kimi-k2.6';
+
+// Best-effort context window (tokens) used only to show a "% of context used"
+// hint in the UI/API responses. NIM doesn't expose this per-model, so it's
+// configurable and defaults to a conservative common size.
+const NIM_CONTEXT_WINDOW = parseInt(process.env.NIM_CONTEXT_WINDOW || '32768', 10);
+
+// Rough fallback token estimate (~4 chars/token) for places where we don't
+// get an exact count back from the API — e.g. the conversation context we
+// fold into an aider task, since aider's own token usage isn't returned to
+// this process in a structured way.
+function estimateTokens(text) {
+  if (!text) return 0;
+  return Math.ceil(String(text).length / 4);
+}
 
 function isAllowedModel(modelId) {
   return ALLOWED_MODELS.includes(modelId);
@@ -174,6 +201,28 @@ async function resolveAgentAuth(req, res, next) {
   return res.status(401).json({ error: 'Not authenticated — connect GitHub in the UI, or pass a valid x-api-key' });
 }
 
+// Lighter auth for endpoints that don't need a GitHub token (chat, console).
+// Accepts x-api-key (external/server-to-server callers) OR a logged-in
+// browser session; open (unauthenticated) only if no AGENT_API_KEY is set.
+async function resolveApiAuth(req, res, next) {
+  const key = req.headers['x-api-key'] || req.query.api_key;
+  if (AGENT_API_KEY && key === AGENT_API_KEY) {
+    req.authSource = 'api-key';
+    return next();
+  }
+  const session = await getSession(req);
+  if (session) {
+    req.authSource = 'session';
+    req.githubToken = session.githubToken;
+    return next();
+  }
+  if (!AGENT_API_KEY) {
+    req.authSource = 'open';
+    return next();
+  }
+  return res.status(401).json({ error: 'Not authenticated — connect GitHub in the UI, or pass a valid x-api-key' });
+}
+
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { maxBuffer: 1024 * 1024 * 50, ...opts }, (err, stdout, stderr) => {
@@ -198,14 +247,35 @@ function sanitizeCommitMessage(message) {
   return String(message || 'update').replace(/\s+/g, ' ').trim().slice(0, 120) || 'update';
 }
 
+// Aider's own bookkeeping files (chat history, input history, tag cache)
+// must never end up in a PR. We keep them out of the repo entirely (see
+// --chat-history-file / --input-history-file in runAgentTask), but this
+// exclusion is kept as a second line of defense in case aider or some other
+// tool drops files matching these patterns into the working tree anyway.
+const COMMIT_EXCLUDE_PATHSPECS = [
+  ':(exclude).aider*',
+  ':(exclude)**/.aider*',
+];
+
 async function commitPendingChanges({ cwd, task, step }) {
-  const { stdout: statusBefore } = await run('git', ['status', '--short'], { cwd });
+  const { stdout: statusBefore } = await run(
+    'git', ['status', '--short', '--', '.', ...COMMIT_EXCLUDE_PATHSPECS], { cwd }
+  );
   if (!statusBefore.trim()) {
     return { committed: false, status: '' };
   }
 
   if (step) step('Staging and committing file changes');
-  await run('git', ['add', '-A'], { cwd });
+  await run('git', ['add', '-A', '--', '.', ...COMMIT_EXCLUDE_PATHSPECS], { cwd });
+
+  // If everything staged after the exclusion is empty (e.g. the only diff
+  // WAS an aider log file), there's nothing real to commit.
+  const { stdout: staged } = await run('git', ['diff', '--cached', '--stat'], { cwd });
+  if (!staged.trim()) {
+    await run('git', ['reset'], { cwd }).catch(() => {});
+    return { committed: false, status: '' };
+  }
+
   await run('git', ['commit', '-m', `Aider: ${sanitizeCommitMessage(task)}`], { cwd });
 
   const { stdout: statusAfter } = await run('git', ['status', '--short'], { cwd });
@@ -344,6 +414,11 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
   const { owner, repo } = parseOwnerRepo(repoUrl);
   const runId = crypto.randomBytes(6).toString('hex');
   const workDir = path.join(WORKSPACES_DIR, `${repo}-${runId}`);
+  // Aider's chat/input history logs live OUTSIDE the cloned repo entirely so
+  // there's no chance of them getting swept into `git add -A` and ending up
+  // committed to the PR.
+  const logsDir = path.join(WORKSPACES_DIR, `${repo}-${runId}-logs`);
+  fs.mkdirSync(logsDir, { recursive: true });
   const branchName = `aider/${runId}`;
   const chosenModel = model || DEFAULT_MODEL;
   const fullTask = buildAiderTask(task, context);
@@ -373,7 +448,12 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
       '--no-check-update',
       '--model', `openai/${chosenModel}`,
       '--message', fullTask,
-      '--no-gitignore'
+      // Keep aider's own bookkeeping files entirely out of the repo working
+      // tree (previously --no-gitignore caused .aider.chat.history.md /
+      // .aider.input.history to get swept into the PR commit — see
+      // commitPendingChanges for the belt-and-suspenders exclusion too).
+      '--chat-history-file', path.join(logsDir, 'chat-history.md'),
+      '--input-history-file', path.join(logsDir, 'input-history.md'),
     ];
     let aiderResult;
     try {
@@ -385,6 +465,17 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
       aiderResult = { stdout: aiderErr.stdout || '', stderr: aiderErr.stderr || '' };
     }
 
+    // Best-effort: aider sometimes prints a "Tokens: X sent, Y received" style
+    // summary line — surface it if present so the caller can see real usage
+    // for the aider call, in addition to the approximate context size below.
+    const aiderTokenMatch = `${aiderResult.stdout}\n${aiderResult.stderr}`.match(
+      /tokens?:\s*([\d.,]+k?)\s*sent.*?([\d.,]+k?)\s*received/i
+    );
+    const aiderTokenSummary = aiderTokenMatch
+      ? { sent: aiderTokenMatch[1], received: aiderTokenMatch[2] }
+      : null;
+
+    step('Committing changes');
     await commitPendingChanges({ cwd: workDir, task, step });
 
     // Check whether aider actually produced any commits on top of base
@@ -392,7 +483,14 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
     if (!diffStat.trim()) {
       step('No changes were made by aider — skipping push/PR');
       cleanup(workDir);
-      return { ok: true, changed: false, message: 'Aider made no changes for this task', aiderOutput: aiderResult.stdout };
+      cleanup(logsDir);
+      return {
+        ok: true,
+        changed: false,
+        message: 'Aider made no changes for this task',
+        aiderOutput: aiderResult.stdout,
+        tokens: { approxContextTokens: estimateTokens(fullTask), aiderTokenSummary },
+      };
     }
 
     step(`Pushing branch ${branchName}`);
@@ -411,11 +509,21 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
 
     step(`PR opened: ${pr.html_url}`);
     cleanup(workDir);
+    cleanup(logsDir);
 
-    return { ok: true, changed: true, prUrl: pr.html_url, prNumber: pr.number, branch: branchName, aiderOutput: aiderResult.stdout };
+    return {
+      ok: true,
+      changed: true,
+      prUrl: pr.html_url,
+      prNumber: pr.number,
+      branch: branchName,
+      aiderOutput: aiderResult.stdout,
+      tokens: { approxContextTokens: estimateTokens(fullTask), aiderTokenSummary },
+    };
   } catch (err) {
     step(`Failed: ${err.message}`);
     cleanup(workDir);
+    cleanup(logsDir);
     err.isAgentRunError = true;
     throw err;
   }
@@ -683,7 +791,7 @@ app.get('/api/models', (req, res) => {
   res.json({ models: ALLOWED_MODELS, default: DEFAULT_MODEL });
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', resolveApiAuth, async (req, res) => {
   const { messages = [], model, repoUrl, baseBranch } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: 'messages array is required' });
@@ -733,10 +841,121 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const content = data.choices?.[0]?.message?.content || '';
-    return res.json({ message: content, model: selectedModel });
+
+    // Exact usage from NIM when available (this is the real number that
+    // matters for "am I approaching the model's context window" — since the
+    // full `messages` array is re-sent every turn, prompt_tokens IS the
+    // current conversation size as seen by the model). Fall back to a rough
+    // char-based estimate if the API didn't return usage for some reason.
+    const usage = data.usage || {
+      prompt_tokens: estimateTokens(promptMessages.map((m) => m.content).join('\n')),
+      completion_tokens: estimateTokens(content),
+      total_tokens: null,
+      estimated: true,
+    };
+    if (usage.total_tokens == null && usage.prompt_tokens != null && usage.completion_tokens != null) {
+      usage.total_tokens = usage.prompt_tokens + usage.completion_tokens;
+    }
+
+    return res.json({
+      message: content,
+      model: selectedModel,
+      usage,
+      contextWindow: NIM_CONTEXT_WINDOW,
+      contextUsedFraction: usage.total_tokens != null ? usage.total_tokens / NIM_CONTEXT_WINDOW : null,
+    });
   } catch (err) {
     return res.status(502).json({ error: err.message || 'Failed to reach NVIDIA NIM' });
   }
+});
+
+// ---- console (python / bash / npm / node) ----
+//
+// MVP execution console so external callers (and the UI, once you build a
+// panel for it) can run commands. Each consoleId gets its own ephemeral
+// directory under workspaces/ that persists across calls until explicitly
+// deleted or reaped by the idle-cleanup sweep below.
+//
+// Security notes (read before exposing this publicly):
+// - Commands are restricted to a fixed allowlist of interpreters (no shell
+//   string is ever executed — execFile with an argv array, so there's no
+//   shell-injection surface via `args`).
+// - There is NO further sandboxing (no container/user/network isolation
+//   beyond whatever the host process already has — e.g. this Railway/Docker
+//   container). Anyone with a valid x-api-key or session can run arbitrary
+//   python/bash/node/npm inside that container. Treat AGENT_API_KEY as
+//   sensitive, rotate it if this is exposed to more than trusted callers,
+//   and consider this a first version — proper multi-tenant use would need
+//   real sandboxing (per-run containers, resource limits, network policy).
+const CONSOLE_ALLOWED_COMMANDS = new Set(['python3', 'python', 'pip', 'pip3', 'node', 'npm', 'bash', 'sh']);
+const CONSOLE_IDLE_MS = 2 * 60 * 60 * 1000; // reap workspaces idle > 2h
+const consoleWorkspaces = new Map(); // consoleId -> { dir, lastUsed }
+
+function getOrCreateConsoleDir(consoleId) {
+  if (consoleId && consoleWorkspaces.has(consoleId)) {
+    const entry = consoleWorkspaces.get(consoleId);
+    entry.lastUsed = Date.now();
+    return { id: consoleId, dir: entry.dir };
+  }
+  const id = consoleId || crypto.randomBytes(8).toString('hex');
+  const dir = path.join(WORKSPACES_DIR, `console-${id}`);
+  fs.mkdirSync(dir, { recursive: true });
+  consoleWorkspaces.set(id, { dir, lastUsed: Date.now() });
+  return { id, dir };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of consoleWorkspaces.entries()) {
+    if (now - entry.lastUsed > CONSOLE_IDLE_MS) {
+      cleanup(entry.dir);
+      consoleWorkspaces.delete(id);
+    }
+  }
+}, 15 * 60 * 1000).unref();
+
+// Streams NDJSON events: {type:"start"}, {type:"stdout"|"stderr", data},
+// {type:"exit", code}, or {type:"error", error}. Reuse the same consoleId
+// across calls to keep files/state (e.g. a venv, node_modules) between runs.
+app.post('/api/console/run', resolveApiAuth, (req, res) => {
+  const { command, args = [], consoleId } = req.body || {};
+  if (!CONSOLE_ALLOWED_COMMANDS.has(command)) {
+    return res.status(400).json({ error: `command must be one of: ${[...CONSOLE_ALLOWED_COMMANDS].join(', ')}` });
+  }
+  if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
+    return res.status(400).json({ error: 'args must be an array of strings' });
+  }
+
+  const { id, dir } = getOrCreateConsoleDir(consoleId);
+
+  res.writeHead(200, {
+    'Content-Type': 'application/x-ndjson',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  const send = (event) => res.write(JSON.stringify(event) + '\n');
+  send({ type: 'start', consoleId: id, command, args });
+
+  const child = execFile(command, args, {
+    cwd: dir,
+    timeout: 5 * 60 * 1000,
+    maxBuffer: 1024 * 1024 * 20,
+    env: process.env,
+  });
+
+  child.stdout.on('data', (chunk) => send({ type: 'stdout', data: chunk.toString() }));
+  child.stderr.on('data', (chunk) => send({ type: 'stderr', data: chunk.toString() }));
+  child.on('error', (err) => { send({ type: 'error', error: err.message }); res.end(); });
+  child.on('close', (code) => { send({ type: 'exit', code, consoleId: id }); res.end(); });
+});
+
+app.delete('/api/console/:id', resolveApiAuth, (req, res) => {
+  const entry = consoleWorkspaces.get(req.params.id);
+  if (!entry) return res.status(404).json({ error: 'Unknown consoleId' });
+  cleanup(entry.dir);
+  consoleWorkspaces.delete(req.params.id);
+  res.json({ ok: true });
 });
 
 // ---- static UI ----
