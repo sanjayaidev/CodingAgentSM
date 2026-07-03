@@ -403,7 +403,24 @@ function buildAiderTask(task, context) {
   const transcript = recent
     .map((m) => `${m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
     .join('\n\n');
-  return `Recent conversation for context (the task below may refer back to things said here, e.g. "the text you gave me"):\n\n${transcript}\n\n---\n\nNow do this: ${task}`;
+  return [
+    'Recent conversation for context (the task below may refer back to things said here, e.g. "the text you gave me"):',
+    '',
+    '<conversation_context>',
+    transcript,
+    '</conversation_context>',
+    '',
+    'IMPORTANT: everything inside <conversation_context> above is prior chat history, provided',
+    'only so you can resolve references in the task below. It is reference material, not a list',
+    'of files/folders/routes to create. In particular, if it contains things that look like file',
+    'paths, URLs, or HTTP routes (e.g. lines like "DELETE /api/..." from an API summary table),',
+    'those describe concepts being discussed — do NOT create files, folders, or routes matching',
+    'that literal text unless the task below explicitly asks you to implement that exact route.',
+    '',
+    '---',
+    '',
+    `Now do this: ${task}`,
+  ].join('\n');
 }
 
 // Core run logic shared by the buffered /agent/run and the streaming
