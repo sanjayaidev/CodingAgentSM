@@ -252,9 +252,19 @@ function sanitizeCommitMessage(message) {
 // --chat-history-file / --input-history-file in runAgentTask), but this
 // exclusion is kept as a second line of defense in case aider or some other
 // tool drops files matching these patterns into the working tree anyway.
+//
+// .godot/ is Godot 4's own generated import/UID cache — running the engine
+// (even --headless, even just to open/check a project) creates it. Most
+// Godot project templates .gitignore it already, but not all do, and
+// forgetting it is the exact same class of bug as the aider log leak: a
+// generated directory silently riding along into a commit. Excluded here
+// unconditionally so it can never happen regardless of the target repo's
+// own .gitignore.
 const COMMIT_EXCLUDE_PATHSPECS = [
   ':(exclude).aider*',
   ':(exclude)**/.aider*',
+  ':(exclude).godot',
+  ':(exclude)**/.godot',
 ];
 
 async function commitPendingChanges({ cwd, task, step }) {
@@ -439,11 +449,87 @@ function buildAiderTask(task, context) {
   ].join('\n');
 }
 
+function findGodotMainScene(cwd) {
+  try {
+    const text = fs.readFileSync(path.join(cwd, 'project.godot'), 'utf8');
+    const match = text.match(/run\/main_scene\s*=\s*"([^"]+)"/);
+    return match ? match[1] : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Boots the project headless for a short window and reports any errors
+// printed to stdout/stderr. This is a smoke test, not a real test suite —
+// it catches GDScript parse errors, missing autoload/resource references,
+// and exceptions thrown during startup, which is exactly the class of thing
+// a naive text edit to a .gd or .tscn file tends to break. Runs the
+// project's configured main scene if project.godot declares one, otherwise
+// just boots the project (still surfaces autoload/global script errors).
+async function runGodotHeadlessCheck({ cwd, timeoutMs = 30000, quitAfterFrames = 60 }) {
+  const mainScene = findGodotMainScene(cwd);
+  const args = ['--headless', '--path', cwd];
+  if (mainScene) args.push(mainScene);
+  args.push('--quit-after', String(quitAfterFrames));
+
+  let stdout = '';
+  let stderr = '';
+  let timedOut = false;
+  try {
+    const result = await run('godot', args, { cwd, timeout: timeoutMs });
+    stdout = result.stdout;
+    stderr = result.stderr;
+  } catch (err) {
+    stdout = err.stdout || '';
+    stderr = err.stderr || '';
+    timedOut = Boolean(err.killed);
+  }
+
+  const combined = `${stdout}\n${stderr}`;
+  const errorLines = combined
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && /error/i.test(line))
+    .slice(0, 40); // cap so a runaway error spam doesn't blow up the follow-up aider prompt
+
+  return {
+    mainScene,
+    ok: errorLines.length === 0 && !timedOut,
+    timedOut,
+    errorLines,
+  };
+}
+
+async function invokeAider({ workDir, logsDir, chosenModel, taskText, aiderEnv }) {
+  const aiderArgs = [
+    '--yes-always',
+    '--no-check-update',
+    '--model', `openai/${chosenModel}`,
+    '--message', taskText,
+    // Keep aider's own bookkeeping files entirely out of the repo working
+    // tree (previously --no-gitignore caused .aider.chat.history.md /
+    // .aider.input.history to get swept into the PR commit — see
+    // commitPendingChanges for the belt-and-suspenders exclusion too).
+    '--chat-history-file', path.join(logsDir, 'chat-history.md'),
+    '--input-history-file', path.join(logsDir, 'input-history.md'),
+  ];
+  try {
+    const result = await run('aider', aiderArgs, { cwd: workDir, env: aiderEnv });
+    return { stdout: result.stdout, stderr: result.stderr, threw: false };
+  } catch (aiderErr) {
+    // aider can exit non-zero even after making valid partial progress; capture output either way
+    return { stdout: aiderErr.stdout || '', stderr: aiderErr.stderr || '', threw: true, error: aiderErr };
+  }
+}
+
 // Core run logic shared by the buffered /agent/run and the streaming
 // /agent/run/stream. `onStep(msg)` is called for every progress update —
 // /agent/run just accumulates it into an array, /agent/run/stream also
 // writes it to the client immediately as an SSE event.
-async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model, prTitle, prBody, token }, onStep) {
+async function runAgentTask({
+  repoUrl, task, context, baseBranch = 'main', model, prTitle, prBody, token,
+  skipGodotCheck = false, godotCheckRetries = 2, godotCheckTimeoutMs = 30000,
+}, onStep) {
   const { owner, repo } = parseOwnerRepo(repoUrl);
   const runId = crypto.randomBytes(6).toString('hex');
   const workDir = path.join(WORKSPACES_DIR, `${repo}-${runId}`);
@@ -476,26 +562,40 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
       OPENAI_API_BASE: NIM_API_BASE,
       OPENAI_API_KEY: NIM_API_KEY
     };
-    const aiderArgs = [
-      '--yes-always',
-      '--no-check-update',
-      '--model', `openai/${chosenModel}`,
-      '--message', fullTask,
-      // Keep aider's own bookkeeping files entirely out of the repo working
-      // tree (previously --no-gitignore caused .aider.chat.history.md /
-      // .aider.input.history to get swept into the PR commit — see
-      // commitPendingChanges for the belt-and-suspenders exclusion too).
-      '--chat-history-file', path.join(logsDir, 'chat-history.md'),
-      '--input-history-file', path.join(logsDir, 'input-history.md'),
-    ];
-    let aiderResult;
-    try {
-      aiderResult = await run('aider', aiderArgs, { cwd: workDir, env: aiderEnv });
-      step('Aider finished successfully');
-    } catch (aiderErr) {
-      // aider can exit non-zero even after making valid partial progress; capture output either way
-      step(`Aider exited with error: ${aiderErr.message}`);
-      aiderResult = { stdout: aiderErr.stdout || '', stderr: aiderErr.stderr || '' };
+    let aiderResult = await invokeAider({ workDir, logsDir, chosenModel, taskText: fullTask, aiderEnv });
+    step(aiderResult.threw ? `Aider exited with error: ${aiderResult.error.message}` : 'Aider finished successfully');
+
+    // Godot headless test-and-fix loop: if this is a Godot project, boot it
+    // headless and check for errors, feeding any back to aider to fix, up to
+    // godotCheckRetries times, before ever committing/opening a PR. This is
+    // what "test the scene before sending it to the user" means in practice
+    // for a container with no display — a smoke test, not full QA (it can't
+    // see rendering, only startup/script errors).
+    const isGodotProject = fs.existsSync(path.join(workDir, 'project.godot'));
+    let godotCheck = null;
+    if (isGodotProject && !skipGodotCheck) {
+      for (let attempt = 0; attempt <= godotCheckRetries; attempt++) {
+        step(attempt === 0 ? 'Godot project detected — running headless check' : `Re-running headless check (fix attempt ${attempt})`);
+        godotCheck = await runGodotHeadlessCheck({ cwd: workDir, timeoutMs: godotCheckTimeoutMs });
+        if (godotCheck.ok) {
+          step('Headless check passed — no errors detected');
+          break;
+        }
+        if (attempt === godotCheckRetries) {
+          step(`Headless check still shows ${godotCheck.errorLines.length} error line(s) after ${godotCheckRetries} fix attempt(s) — proceeding anyway, review before merging`);
+          break;
+        }
+        step(`Headless check found ${godotCheck.errorLines.length} error line(s) — asking aider to fix`);
+        const fixTask = [
+          'Running this Godot project headless produced the following errors. Fix them.',
+          '',
+          '<headless_errors>',
+          godotCheck.errorLines.join('\n'),
+          '</headless_errors>',
+        ].join('\n');
+        aiderResult = await invokeAider({ workDir, logsDir, chosenModel, taskText: fixTask, aiderEnv });
+        step(aiderResult.threw ? `Aider exited with error: ${aiderResult.error.message}` : 'Aider finished successfully');
+      }
     }
 
     // Best-effort: aider sometimes prints a "Tokens: X sent, Y received" style
@@ -523,6 +623,7 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
         message: 'Aider made no changes for this task',
         aiderOutput: aiderResult.stdout,
         tokens: { approxContextTokens: estimateTokens(fullTask), aiderTokenSummary },
+        godotCheck,
       };
     }
 
@@ -1017,23 +1118,45 @@ app.post('/api/godot/start', resolveApiAuth, (req, res) => {
   if (godotServer && godotServer.proc.exitCode == null) {
     return res.status(409).json({ error: 'A Godot server is already running', pid: godotServer.proc.pid });
   }
-  const { projectPath, args = [] } = req.body || {};
-  if (!projectPath || typeof projectPath !== 'string') {
-    return res.status(400).json({ error: 'projectPath is required (path to a Godot project directory containing project.godot, reachable inside this container)' });
+  const { projectPath, binaryPath, mainPack, args = [] } = req.body || {};
+  if (!projectPath && !binaryPath) {
+    return res.status(400).json({
+      error: 'Provide either projectPath (a directory containing project.godot, run via the system godot engine) '
+        + 'or binaryPath (a prebuilt exported server executable, run directly — e.g. from a repo that ships its '
+        + 'own godot_server binary + .pck instead of source).',
+    });
   }
   if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
     return res.status(400).json({ error: 'args must be an array of strings' });
   }
 
-  const fullArgs = ['--headless', '--path', projectPath, ...args];
-  let proc;
-  try {
-    proc = spawn('godot', fullArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    return res.status(500).json({ error: `Failed to launch godot: ${err.message}` });
+  // Two mutually exclusive launch modes:
+  let executable;
+  let fullArgs;
+  if (binaryPath) {
+    // Prebuilt export: run the shipped executable directly. Not the system
+    // `godot` engine at all — this binary already has the game baked in
+    // (Godot's export process produces a standalone executable per-platform).
+    executable = binaryPath;
+    fullArgs = ['--headless', ...(mainPack ? ['--main-pack', mainPack] : []), ...args];
+    // Make sure it's actually executable (repos cloned via git often need this,
+    // and it's a common source of "exec format error"/"permission denied").
+    try { fs.chmodSync(binaryPath, 0o755); } catch (_) {}
+  } else {
+    // Source project: use the system-installed godot engine against
+    // project.godot, same as before.
+    executable = 'godot';
+    fullArgs = ['--headless', '--path', projectPath, ...args];
   }
 
-  godotServer = { proc, startedAt: Date.now(), projectPath, args: fullArgs, logs: [] };
+  let proc;
+  try {
+    proc = spawn(executable, fullArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to launch ${executable}: ${err.message}` });
+  }
+
+  godotServer = { proc, startedAt: Date.now(), projectPath: projectPath || null, binaryPath: binaryPath || null, args: fullArgs, logs: [] };
   proc.stdout.on('data', (chunk) => pushGodotLog('stdout', chunk));
   proc.stderr.on('data', (chunk) => pushGodotLog('stderr', chunk));
   proc.on('exit', (code, signal) => {
@@ -1042,7 +1165,7 @@ app.post('/api/godot/start', resolveApiAuth, (req, res) => {
     }
   });
 
-  res.json({ started: true, pid: proc.pid, projectPath, args: fullArgs });
+  res.json({ started: true, pid: proc.pid, projectPath: projectPath || null, binaryPath: binaryPath || null, args: fullArgs });
 });
 
 app.post('/api/godot/stop', resolveApiAuth, (req, res) => {
@@ -1060,6 +1183,7 @@ app.get('/api/godot/status', resolveApiAuth, (req, res) => {
     running,
     pid: godotServer.proc.pid,
     projectPath: godotServer.projectPath,
+    binaryPath: godotServer.binaryPath,
     args: godotServer.args,
     uptimeMs: running ? Date.now() - godotServer.startedAt : null,
     exitCode: godotServer.proc.exitCode,
