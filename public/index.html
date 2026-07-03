@@ -31,6 +31,42 @@
     min-height: 100vh;
   }
   code, .mono { font-family: 'JetBrains Mono', monospace; }
+  .tab-bar { display: flex; gap: 4px; padding: 10px 24px 0; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .tab-btn {
+    background: transparent; border: none; color: var(--text-dim); font-size: 13px; font-weight: 500;
+    padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .terminal-shell { display: flex; flex-direction: column; height: calc(100vh - 108px); padding: 16px 24px; gap: 12px; }
+  .terminal-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .terminal-output {
+    flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .terminal-line-stdout { color: var(--text); }
+  .terminal-line-stderr { color: var(--red); }
+  .terminal-line-system { color: var(--text-faint); font-style: italic; }
+  .terminal-line-cmd { color: var(--accent); }
+  .terminal-input-row { display: flex; gap: 8px; }
+  .terminal-input-row input { flex: 1; }
+  .godot-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--panel-raised);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .godot-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-dot.running { background: var(--accent); }
+  .status-dot.stopped { background: var(--text-faint); }
+  .term-select, .term-input, .term-btn {
+    font-family: inherit; font-size: 13px; color: var(--text); background: var(--panel-raised);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  }
+  .term-btn { cursor: pointer; font-weight: 600; }
+  .term-btn:hover { border-color: var(--focus); }
+  .term-btn:disabled { opacity: 0.5; cursor: default; }
+  .term-btn.danger { color: var(--red); border-color: var(--red); }
+  .term-btn.accent { background: var(--accent); color: #07110a; border-color: var(--accent); }
   ::selection { background: var(--accent-dim); }
   a { color: var(--focus); }
   button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
@@ -894,6 +930,191 @@ function ResultPanel({ running, result, runError, logEndRef }) {
   );
 }
 
+function TerminalPanel() {
+  const [command, setCommand] = useState('bash');
+  const [argsText, setArgsText] = useState('');
+  const [lines, setLines] = useState([]); // {type: 'cmd'|'stdout'|'stderr'|'system', text}
+  const [running, setRunning] = useState(false);
+  const consoleIdRef = useRef(null);
+  const outputRef = useRef(null);
+
+  const [godotProjectPath, setGodotProjectPath] = useState('');
+  const [godotArgsText, setGodotArgsText] = useState('');
+  const [godotStatus, setGodotStatus] = useState({ running: false });
+  const [godotBusy, setGodotBusy] = useState(false);
+
+  useEffect(() => {
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, [lines]);
+
+  const refreshGodotStatus = useCallback(() => {
+    getJSON('/api/godot/status').then(setGodotStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshGodotStatus();
+    const id = window.setInterval(refreshGodotStatus, 4000);
+    return () => window.clearInterval(id);
+  }, [refreshGodotStatus]);
+
+  const appendLine = useCallback((type, text) => {
+    setLines((prev) => [...prev, { type, text }]);
+  }, []);
+
+  // Splits a command line the way a shell would (respecting simple "quoted args"),
+  // good enough for typical invocations without needing a full shell parser.
+  const splitArgs = (text) => {
+    const matches = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    return matches.map((token) => token.replace(/^["']|["']$/g, ''));
+  };
+
+  const runCommand = useCallback(async (event) => {
+    event.preventDefault();
+    if (running) return;
+    const args = splitArgs(argsText);
+    appendLine('cmd', `$ ${command} ${args.join(' ')}`);
+    setRunning(true);
+    try {
+      const resp = await fetch('/api/console/run', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, args, consoleId: consoleIdRef.current || undefined }),
+      });
+      if (!resp.ok || !resp.body) {
+        const data = await resp.json().catch(() => ({}));
+        appendLine('stderr', data.error || `Request failed (${resp.status})`);
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line); } catch (_) { continue; }
+          if (evt.type === 'start') consoleIdRef.current = evt.consoleId;
+          else if (evt.type === 'stdout') appendLine('stdout', evt.data.replace(/\n$/, ''));
+          else if (evt.type === 'stderr') appendLine('stderr', evt.data.replace(/\n$/, ''));
+          else if (evt.type === 'exit') appendLine('system', `(exited with code ${evt.code})`);
+          else if (evt.type === 'error') appendLine('stderr', evt.error);
+        }
+      }
+    } catch (e) {
+      appendLine('stderr', e.message);
+    } finally {
+      setRunning(false);
+    }
+  }, [appendLine, argsText, command, running]);
+
+  const startGodotServer = useCallback(async () => {
+    if (!godotProjectPath.trim()) return;
+    setGodotBusy(true);
+    try {
+      const data = await getJSON('/api/godot/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: godotProjectPath.trim(), args: splitArgs(godotArgsText) }),
+      });
+      appendLine('system', `Godot server started (pid ${data.pid})`);
+    } catch (e) {
+      appendLine('stderr', `Godot start failed: ${e.message}`);
+    } finally {
+      setGodotBusy(false);
+      refreshGodotStatus();
+    }
+  }, [appendLine, godotArgsText, godotProjectPath, refreshGodotStatus]);
+
+  const stopGodotServer = useCallback(async () => {
+    setGodotBusy(true);
+    try {
+      await getJSON('/api/godot/stop', { method: 'POST' });
+      appendLine('system', 'Godot server stopping…');
+    } catch (e) {
+      appendLine('stderr', `Godot stop failed: ${e.message}`);
+    } finally {
+      setGodotBusy(false);
+      refreshGodotStatus();
+    }
+  }, [appendLine, refreshGodotStatus]);
+
+  return (
+    <div className="terminal-shell">
+      <div className="godot-card">
+        <div className="godot-card-header">
+          <div>
+            <span className={`status-dot ${godotStatus.running ? 'running' : 'stopped'}`} />
+            <strong>Godot headless server</strong>
+            <span className="helper-text" style={{ marginLeft: 8 }}>
+              {godotStatus.running
+                ? `running · pid ${godotStatus.pid} · up ${Math.round((godotStatus.uptimeMs || 0) / 1000)}s`
+                : 'not running'}
+            </span>
+          </div>
+        </div>
+        {!godotStatus.running ? (
+          <div className="terminal-toolbar">
+            <input
+              className="term-input" style={{ flex: 1, minWidth: 220 }}
+              placeholder="Project path (contains project.godot), e.g. workspaces/my-repo/server"
+              value={godotProjectPath}
+              onChange={(e) => setGodotProjectPath(e.target.value)}
+            />
+            <input
+              className="term-input" style={{ flex: 1, minWidth: 180 }}
+              placeholder="Extra args, e.g. --port 8910"
+              value={godotArgsText}
+              onChange={(e) => setGodotArgsText(e.target.value)}
+            />
+            <button type="button" className="term-btn accent" disabled={godotBusy || !godotProjectPath.trim()} onClick={startGodotServer}>
+              {godotBusy ? 'Starting…' : 'Start server'}
+            </button>
+          </div>
+        ) : (
+          <div className="terminal-toolbar">
+            <span className="helper-text mono">{godotStatus.projectPath} {(godotStatus.args || []).join(' ')}</span>
+            <button type="button" className="term-btn danger" disabled={godotBusy} onClick={stopGodotServer}>
+              {godotBusy ? 'Stopping…' : 'Stop server'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <form className="terminal-toolbar" onSubmit={runCommand}>
+        <select className="term-select" value={command} onChange={(e) => setCommand(e.target.value)}>
+          {['bash', 'sh', 'python3', 'pip', 'node', 'npm', 'godot'].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input
+          className="term-input" style={{ flex: 1 }}
+          placeholder={command === 'bash' || command === 'sh' ? "-c \"ls -la\"" : 'arguments…'}
+          value={argsText}
+          onChange={(e) => setArgsText(e.target.value)}
+        />
+        <button type="submit" className="term-btn accent" disabled={running}>{running ? 'Running…' : 'Run'}</button>
+        <button type="button" className="term-btn" onClick={() => setLines([])}>Clear</button>
+      </form>
+      <div className="helper-text">
+        Commands persist a working directory across runs (venvs, node_modules survive between calls) via a reused console session.
+        Allowed: bash, sh, python3, pip, node, npm, godot. This runs directly in the app's container — no extra sandboxing.
+      </div>
+
+      <div className="terminal-output" ref={outputRef}>
+        {lines.length === 0 && <span className="terminal-line-system">Nothing run yet. Try: bash -c "ls -la"</span>}
+        {lines.map((l, i) => (
+          <div key={i} className={`terminal-line-${l.type}`}>{l.text}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -902,6 +1123,7 @@ function App() {
   const [repos, setRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(true);
   const [reposError, setReposError] = useState(null);
+  const [activeTab, setActiveTab] = useState('chat');
 
   const loadSession = useCallback(() => {
     getJSON('/api/session').then(setSession).catch(() => setSession({ loggedIn: false })).finally(() => setLoadingSession(false));
@@ -924,9 +1146,16 @@ function App() {
     <React.Fragment>
       <TopBar session={session} onLogout={onLogout} />
       {session && session.loggedIn ? (
-        <div className="app-shell">
-          <ChatPanel models={models} defaultModel={defaultModel} repos={repos} reposLoading={reposLoading} reposError={reposError} />
-        </div>
+        <React.Fragment>
+          <div className="tab-bar">
+            <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>Chat & Agent</button>
+            <button className={`tab-btn ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>Terminal</button>
+          </div>
+          <div className="app-shell" style={{ display: activeTab === 'chat' ? 'flex' : 'none' }}>
+            <ChatPanel models={models} defaultModel={defaultModel} repos={repos} reposLoading={reposLoading} reposError={reposError} />
+          </div>
+          {activeTab === 'terminal' && <TerminalPanel />}
+        </React.Fragment>
       ) : (
         <ConnectScreen githubConfigured={true} />
       )}
