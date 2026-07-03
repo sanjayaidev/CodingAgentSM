@@ -60,3 +60,43 @@ test('commitPendingChanges stages and commits pending file edits', async () => {
   const status = execFileSync('git', ['status', '--short'], { cwd: tempDir, encoding: 'utf8' });
   assert.equal(status.trim(), '');
 });
+
+test('commitPendingChanges never commits aider bookkeeping files (chat/input history)', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-exclude-'));
+  execFileSync('git', ['init'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tempDir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(tempDir, 'README.md'), '# test\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: tempDir, stdio: 'ignore' });
+
+  fs.writeFileSync(path.join(tempDir, 'feature.txt'), 'real change\n');
+  fs.writeFileSync(path.join(tempDir, '.aider.chat.history.md'), 'chat log leak\n');
+  fs.writeFileSync(path.join(tempDir, '.aider.input.history'), 'input log leak\n');
+
+  const result = await commitPendingChanges({ cwd: tempDir, task: 'Add a feature' });
+  assert.equal(result.committed, true);
+
+  const committedFiles = execFileSync('git', ['show', '--stat', '--name-only', 'HEAD'], { cwd: tempDir, encoding: 'utf8' });
+  assert.match(committedFiles, /feature\.txt/);
+  assert.doesNotMatch(committedFiles, /\.aider\.chat\.history\.md/);
+  assert.doesNotMatch(committedFiles, /\.aider\.input\.history/);
+
+  const status = execFileSync('git', ['status', '--short'], { cwd: tempDir, encoding: 'utf8' });
+  assert.match(status, /\.aider\.chat\.history\.md/); // left untracked, not committed
+});
+
+test('commitPendingChanges reports no changes when only aider bookkeeping files are dirty', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-onlylog-'));
+  execFileSync('git', ['init'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tempDir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(tempDir, 'README.md'), '# test\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: tempDir, stdio: 'ignore' });
+
+  fs.writeFileSync(path.join(tempDir, '.aider.chat.history.md'), 'chat log leak\n');
+
+  const result = await commitPendingChanges({ cwd: tempDir, task: 'No-op' });
+  assert.equal(result.committed, false);
+});
