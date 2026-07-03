@@ -1,5 +1,5 @@
 const express = require('express');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -282,10 +282,26 @@ async function commitPendingChanges({ cwd, task, step }) {
   return { committed: true, status: statusAfter.trim() };
 }
 
-function isRepoQuestionPrompt(text = '') {
-  const hasRepoTerms = /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(text);
-  const hasActionVerb = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(text);
-  return hasRepoTerms && !hasActionVerb;
+// Previously this gated on a keyword regex (isRepoQuestionPrompt) trying to
+// guess "is this a question about the repo" from the message text — that
+// missed ordinary phrasings like "read the readme" or "what's in there",
+// silently falling back to a plain chat call with zero repo context. Now:
+// if the caller selected a repo (repoUrl present) and we're on the plain
+// chat path at all (action/edit requests already went to /agent/run
+// instead), just always attach context. REPO_CONTEXT_CACHE below keeps this
+// cheap by avoiding a fresh clone on every turn of the same conversation.
+const REPO_CONTEXT_CACHE = new Map(); // `${repoUrl}@${baseBranch}` -> { context, at }
+const REPO_CONTEXT_TTL_MS = 5 * 60 * 1000;
+
+async function getCachedRepositoryContext({ repoUrl, baseBranch, token }) {
+  const key = `${repoUrl}@${baseBranch || 'main'}`;
+  const cached = REPO_CONTEXT_CACHE.get(key);
+  if (cached && Date.now() - cached.at < REPO_CONTEXT_TTL_MS) {
+    return cached.context;
+  }
+  const context = await collectRepositoryContext({ repoUrl, baseBranch, token });
+  REPO_CONTEXT_CACHE.set(key, { context, at: Date.now() });
+  return context;
 }
 
 async function collectRepositoryContext({ cwd, repoUrl, baseBranch = 'main', token } = {}) {
@@ -525,6 +541,7 @@ async function runAgentTask({ repoUrl, task, context, baseBranch = 'main', model
     });
 
     step(`PR opened: ${pr.html_url}`);
+    REPO_CONTEXT_CACHE.delete(`${repoUrl}@${baseBranch || 'main'}`);
     cleanup(workDir);
     cleanup(logsDir);
 
@@ -818,13 +835,12 @@ app.post('/api/chat', resolveApiAuth, async (req, res) => {
   }
 
   const selectedModel = isAllowedModel(model) ? model : DEFAULT_MODEL;
-  const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
-  const shouldInspectRepo = Boolean(repoUrl) && isRepoQuestionPrompt(lastUserMessage);
+  const shouldInspectRepo = Boolean(repoUrl);
 
   try {
     let promptMessages = messages;
     if (shouldInspectRepo) {
-      const repoContext = await collectRepositoryContext({
+      const repoContext = await getCachedRepositoryContext({
         repoUrl,
         baseBranch,
         token: req.githubToken || DEFAULT_GITHUB_TOKEN,
@@ -904,7 +920,7 @@ app.post('/api/chat', resolveApiAuth, async (req, res) => {
 //   sensitive, rotate it if this is exposed to more than trusted callers,
 //   and consider this a first version — proper multi-tenant use would need
 //   real sandboxing (per-run containers, resource limits, network policy).
-const CONSOLE_ALLOWED_COMMANDS = new Set(['python3', 'python', 'pip', 'pip3', 'node', 'npm', 'bash', 'sh']);
+const CONSOLE_ALLOWED_COMMANDS = new Set(['python3', 'python', 'pip', 'pip3', 'node', 'npm', 'bash', 'sh', 'godot']);
 const CONSOLE_IDLE_MS = 2 * 60 * 60 * 1000; // reap workspaces idle > 2h
 const consoleWorkspaces = new Map(); // consoleId -> { dir, lastUsed }
 
@@ -973,6 +989,86 @@ app.delete('/api/console/:id', resolveApiAuth, (req, res) => {
   cleanup(entry.dir);
   consoleWorkspaces.delete(req.params.id);
   res.json({ ok: true });
+});
+
+// ---- Godot headless dedicated server ----
+//
+// Separate from /api/console/run: a Godot dedicated server is a long-running
+// process that needs to stay up independent of any single HTTP request/
+// stream, and typically needs to bind to a fixed port so it can be exposed
+// (e.g. via Railway's TCP Proxy — see README). This is a minimal process
+// manager: one Godot server at a time, controlled via start/stop/status,
+// with its output kept in a ring buffer you can poll via /logs.
+let godotServer = null; // { proc, startedAt, projectPath, args, logs: [] }
+const GODOT_LOG_LINES = 500;
+
+function pushGodotLog(stream, chunk) {
+  if (!godotServer) return;
+  const lines = chunk.toString().split('\n').filter(Boolean);
+  for (const line of lines) {
+    godotServer.logs.push({ stream, line, at: Date.now() });
+  }
+  if (godotServer.logs.length > GODOT_LOG_LINES) {
+    godotServer.logs.splice(0, godotServer.logs.length - GODOT_LOG_LINES);
+  }
+}
+
+app.post('/api/godot/start', resolveApiAuth, (req, res) => {
+  if (godotServer && godotServer.proc.exitCode == null) {
+    return res.status(409).json({ error: 'A Godot server is already running', pid: godotServer.proc.pid });
+  }
+  const { projectPath, args = [] } = req.body || {};
+  if (!projectPath || typeof projectPath !== 'string') {
+    return res.status(400).json({ error: 'projectPath is required (path to a Godot project directory containing project.godot, reachable inside this container)' });
+  }
+  if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
+    return res.status(400).json({ error: 'args must be an array of strings' });
+  }
+
+  const fullArgs = ['--headless', '--path', projectPath, ...args];
+  let proc;
+  try {
+    proc = spawn('godot', fullArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to launch godot: ${err.message}` });
+  }
+
+  godotServer = { proc, startedAt: Date.now(), projectPath, args: fullArgs, logs: [] };
+  proc.stdout.on('data', (chunk) => pushGodotLog('stdout', chunk));
+  proc.stderr.on('data', (chunk) => pushGodotLog('stderr', chunk));
+  proc.on('exit', (code, signal) => {
+    if (godotServer && godotServer.proc === proc) {
+      pushGodotLog('system', `process exited (code=${code}, signal=${signal})`);
+    }
+  });
+
+  res.json({ started: true, pid: proc.pid, projectPath, args: fullArgs });
+});
+
+app.post('/api/godot/stop', resolveApiAuth, (req, res) => {
+  if (!godotServer || godotServer.proc.exitCode != null) {
+    return res.status(404).json({ error: 'No Godot server is running' });
+  }
+  godotServer.proc.kill('SIGTERM');
+  res.json({ stopping: true, pid: godotServer.proc.pid });
+});
+
+app.get('/api/godot/status', resolveApiAuth, (req, res) => {
+  if (!godotServer) return res.json({ running: false });
+  const running = godotServer.proc.exitCode == null;
+  res.json({
+    running,
+    pid: godotServer.proc.pid,
+    projectPath: godotServer.projectPath,
+    args: godotServer.args,
+    uptimeMs: running ? Date.now() - godotServer.startedAt : null,
+    exitCode: godotServer.proc.exitCode,
+  });
+});
+
+app.get('/api/godot/logs', resolveApiAuth, (req, res) => {
+  if (!godotServer) return res.json({ logs: [] });
+  res.json({ logs: godotServer.logs });
 });
 
 // ---- static UI ----
