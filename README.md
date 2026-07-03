@@ -128,8 +128,12 @@ called directly from another service/browser origin.
 | `POST /agent/run/stream`    | Same as above, but streams newline-delimited JSON progress events (`{"type":"step",...}`, then one `{"type":"done"|"error",...}`). This is what the built-in UI's activity panel now consumes for real progress. |
 | `POST /api/chat`            | Plain chat completion via NIM. Returns `{ message, usage, contextWindow, contextUsedFraction }` — `usage` is the exact `prompt_tokens`/`completion_tokens`/`total_tokens` from NIM for that call, since the full message history is re-sent every turn this **is** your current context-window usage. |
 | `GET /api/models`           | List of allowed NIM models + the default. |
-| `POST /api/console/run`     | Run `python3`/`python`/`pip`/`pip3`/`node`/`npm`/`bash`/`sh` with args, streamed as NDJSON (`stdout`/`stderr`/`exit` events). See "Execution console" below. |
+| `POST /api/console/run`     | Run `python3`/`python`/`pip`/`pip3`/`node`/`npm`/`bash`/`sh`/`godot` with args, streamed as NDJSON (`stdout`/`stderr`/`exit` events). See "Execution console" below. |
 | `DELETE /api/console/:id`   | Delete a console workspace. |
+| `POST /api/godot/start`     | Start a persistent headless Godot dedicated server (`{ projectPath, args }`). One at a time. |
+| `POST /api/godot/stop`      | Stop the running Godot server. |
+| `GET /api/godot/status`     | `{ running, pid, projectPath, args, uptimeMs }`. |
+| `GET /api/godot/logs`       | Last 500 lines of the Godot server's stdout/stderr. |
 
 `NIM_CONTEXT_WINDOW` (env var, default `32768`) controls the context-window size used to
 compute `contextUsedFraction` — set it to match whatever model you're actually using so the
@@ -158,6 +162,59 @@ per-run isolation (no separate container, user, or network policy per command). 
 valid `x-api-key` or session can run arbitrary code inside it. That's fine for a personal
 deployment behind a private `AGENT_API_KEY`; before exposing this more broadly, put real
 sandboxing in front of it (e.g. a per-run container/VM with resource and network limits).
+
+## Terminal UI + Godot headless server
+
+There's now a **Terminal** tab in the UI (next to Chat & Agent) backed by `/api/console/run`:
+pick `bash`/`sh`/`python3`/`pip`/`node`/`npm`/`godot`, type args, run — output streams in live.
+Runs reuse a working directory across calls within the same tab session (a venv or
+`node_modules` you set up sticks around), same allowlist/security model as the API (see above).
+
+**Godot** is installed in the Docker image (official Linux binary, `--headless`-capable — see
+`Dockerfile`, pinned via `ARG GODOT_VERSION`, currently `4.7`). Two ways to use it:
+
+1. **One-off commands** (exports, running a script, tests) — just use the Terminal tab or
+   `POST /api/console/run` with `command: "godot"`, e.g. `args: ["--headless", "--path", "workspaces/my-repo", "--script", "res://build.gd"]`.
+2. **A persistent dedicated server** — the console endpoint above is request-scoped (its process
+   stops when the stream ends), which doesn't suit a long-running game server. For that, use the
+   Godot server card at the top of the Terminal tab, or the API directly:
+
+   ```bash
+   curl -X POST http://localhost:3000/api/godot/start \
+     -H "Content-Type: application/json" -H "x-api-key: $AGENT_API_KEY" \
+     -d '{"projectPath": "workspaces/my-repo/server", "args": ["--port", "8910"]}'
+
+   curl http://localhost:3000/api/godot/status -H "x-api-key: $AGENT_API_KEY"
+   curl http://localhost:3000/api/godot/logs   -H "x-api-key: $AGENT_API_KEY"
+   curl -X POST http://localhost:3000/api/godot/stop -H "x-api-key: $AGENT_API_KEY"
+   ```
+
+   This manages one Godot process at a time (start/stop/status/logs, last 500 log lines kept in
+   memory). `projectPath` needs a `project.godot` at that path, reachable inside the container —
+   e.g. clone/checkout a repo into `workspaces/` first (via the agent, or `git` in the Terminal
+   tab), then point `projectPath` at it.
+
+### Does Railway support running this alongside the existing server?
+
+Yes. Two ways to do it, in order of what I'd actually recommend:
+
+- **Same service (what's wired up above)**: the Godot process runs inside this app's own
+  container, managed by `/api/godot/*`. Railway now supports **TCP Proxy and an HTTP domain on
+  the same service simultaneously** (this used to be an either/or limitation — it isn't anymore).
+  So you'd keep the Express app on its normal Railway-provided HTTP domain, and separately add a
+  **TCP Proxy** in that service's Settings pointed at whatever port you pass Godot via
+  `--port` in `args`. Railway hands you a `host:port` for the TCP proxy — that's what game
+  clients connect to.
+- **Separate service** (cleaner for a real production dedicated server): create a second Railway
+  service in the same project from a small Godot-only Dockerfile, and use Railway's private
+  networking or a TCP Proxy for it. This scales/restarts independently of the coding-agent API
+  and doesn't share failure domains with it — worth doing once the Godot server is more than a
+  quick test.
+
+Either way, keep in mind Railway's proxy currently multiplexes **one port per TCP Proxy** — if
+your Godot server needs multiple ports (e.g. a gameplay port + a separate metrics/RCON port),
+each one needs its own TCP Proxy entry (or route the extra one over Railway's private network
+instead of exposing it publicly).
 
 ## Deploy on Railway
 
