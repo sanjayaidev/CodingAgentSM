@@ -243,6 +243,35 @@ async function getJSON(url, opts) {
   return data;
 }
 
+// Renders the token-usage line shown under assistant replies. Two shapes:
+// - plain chat turns: exact usage from the NIM API ({prompt_tokens, completion_tokens, total_tokens})
+// - agent/aider turns: only an approximate context size is knowable (aider manages its own LLM calls internally)
+function formatUsage(usage) {
+  if (!usage) return null;
+  if (usage.prompt_tokens != null) {
+    const bits = [`${usage.prompt_tokens} sent`];
+    if (usage.completion_tokens != null) bits.push(`${usage.completion_tokens} received`);
+    let label = bits.join(' · ');
+    if (usage.total_tokens != null) {
+      label += ` · ${usage.total_tokens} total`;
+      if (usage.contextWindow) {
+        const pct = Math.round((usage.total_tokens / usage.contextWindow) * 100);
+        label += ` (~${pct}% of ${usage.contextWindow}-token context)`;
+      }
+    }
+    if (usage.estimated) label += ' — estimated';
+    return label;
+  }
+  if (usage.approxContextTokens != null) {
+    let label = `~${usage.approxContextTokens} tokens of context sent to aider (approx)`;
+    if (usage.aiderTokenSummary) {
+      label += ` · aider reported ${usage.aiderTokenSummary.sent} sent / ${usage.aiderTokenSummary.received} received`;
+    }
+    return label;
+  }
+  return null;
+}
+
 function BranchMark({ size = 22, color = 'var(--accent)' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -410,7 +439,6 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   const [activitySteps, setActivitySteps] = useState([]);
   const [activeStep, setActiveStep] = useState(0);
   const endRef = useRef(null);
-  const activityTimerRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -470,38 +498,20 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  useEffect(() => {
-    return () => {
-      if (activityTimerRef.current) window.clearTimeout(activityTimerRef.current);
-    };
+  // Real (non-simulated) activity tracking: appendStep is called only when
+  // something actually happens — a "step" event from /agent/run/stream, or
+  // a genuine before/after transition around a fetch. No timers.
+  const appendStep = useCallback((msg) => {
+    setActivitySteps((prev) => {
+      const next = [...prev, msg];
+      setActiveStep(next.length - 1);
+      return next;
+    });
   }, []);
 
-  const launchActivityFlow = useCallback((steps) => {
-    if (activityTimerRef.current) window.clearTimeout(activityTimerRef.current);
-    setActivitySteps(steps);
-    setActiveStep(0);
-    if (!steps.length) return;
-
-    let index = 0;
-    const tick = () => {
-      if (index >= steps.length) {
-        setActiveStep(steps.length - 1);
-        return;
-      }
-      setActiveStep(index);
-      index += 1;
-      activityTimerRef.current = window.setTimeout(tick, 900);
-    };
-    activityTimerRef.current = window.setTimeout(tick, 500);
-  }, []);
-
-  const stopActivityFlow = useCallback(() => {
-    if (activityTimerRef.current) {
-      window.clearTimeout(activityTimerRef.current);
-      activityTimerRef.current = null;
-    }
-    setActiveStep(0);
+  const resetActivity = useCallback(() => {
     setActivitySteps([]);
+    setActiveStep(0);
   }, []);
 
   const handleSend = useCallback(async (event) => {
@@ -509,39 +519,82 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     const userPrompt = input.trim();
     if (!userPrompt || loading) return;
 
+    const priorMessages = messages; // conversation before this turn — this is what gets folded into the aider task as context
     const nextMessages = [...messages, { role: 'user', content: userPrompt }];
     setMessages(nextMessages);
     setInput('');
     setError('');
     setLoading(true);
+    resetActivity();
 
     const selectedRepo = repos.find((r) => r.fullName === repoFullName);
     const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
     const isRepoQuestion = Boolean(selectedRepo) && /\b(repo|repository|project|this app|this project|what does|what is|explain|summarize|tell me about|overview|architecture|structure|main files|entry points|source files)\b/i.test(userPrompt);
     const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
-    const initialSteps = shouldRunAgent
-      ? ['Preparing request', 'Cloning repository', 'Reading relevant files', 'Writing files', 'Committing changes', 'Opening pull request']
-      : ['Preparing request', 'Inspecting repository', 'Reading key files', 'Sending context to AI', 'Generating answer'];
-    launchActivityFlow(initialSteps);
 
     try {
       let assistantMessage = '';
+      let usage = null;
+
       if (shouldRunAgent) {
-        const data = await getJSON('/agent/run', {
+        appendStep('Preparing request');
+        const resp = await fetch('/agent/run/stream', {
           method: 'POST',
+          credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             repoUrl: selectedRepo ? selectedRepo.htmlUrl : `https://github.com/${repoFullName}`,
             task: userPrompt,
+            // Prior chat turns, so aider (a fresh clone each run) can resolve
+            // references like "the text you gave me" — this is the actual
+            // fix for chat<->aider context not persisting across turns.
+            context: priorMessages,
             baseBranch,
             model: selectedModel || defaultModel || undefined,
           }),
         });
-        const logLines = Array.isArray(data.log) ? data.log : [];
-        assistantMessage = data.changed
-          ? `Implemented the requested change.\n\nPR: ${data.prUrl || 'n/a'}\n\n${logLines.map((line) => `- ${line}`).join('\n')}`
+
+        if (!resp.ok || !resp.body) {
+          let data = {};
+          try { data = await resp.json(); } catch (_) {}
+          throw new Error(data.error || `Agent run failed (${resp.status})`);
+        }
+
+        // Consume the newline-delimited JSON stream and reflect each REAL
+        // step (cloning, running aider, committing, pushing, opening PR — see
+        // runAgentTask in server.js) into the activity panel as it happens.
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalEvent = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex;
+          while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch (_) { continue; }
+            if (evt.type === 'step') appendStep(evt.message);
+            else if (evt.type === 'done' || evt.type === 'error') finalEvent = evt;
+          }
+        }
+
+        if (!finalEvent) throw new Error('Agent run ended without a result');
+        if (finalEvent.type === 'error') {
+          throw Object.assign(new Error(finalEvent.error), { data: finalEvent });
+        }
+
+        const logLines = Array.isArray(finalEvent.log) ? finalEvent.log : [];
+        usage = finalEvent.tokens || null;
+        assistantMessage = finalEvent.changed
+          ? `Implemented the requested change.\n\nPR: ${finalEvent.prUrl || 'n/a'}\n\n${logLines.map((line) => `- ${line}`).join('\n')}`
           : `No changes were needed for this task.\n\n${logLines.map((line) => `- ${line}`).join('\n')}`;
       } else {
+        appendStep('Sending message to AI');
         const data = await getJSON('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -555,27 +608,29 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
             baseBranch: isRepoQuestion ? baseBranch : undefined,
           }),
         });
+        appendStep('Response received');
         assistantMessage = data.message || 'No response returned.';
+        usage = data.usage ? { ...data.usage, contextWindow: data.contextWindow } : null;
       }
-      setMessages([...nextMessages, { role: 'assistant', content: assistantMessage }]);
+      setMessages([...nextMessages, { role: 'assistant', content: assistantMessage, usage }]);
     } catch (e) {
+      appendStep(`Failed: ${e.message}`);
       setMessages([...nextMessages, { role: 'assistant', content: `Sorry, I could not respond. ${e.message}` }]);
       setError(e.message);
     } finally {
       setLoading(false);
-      stopActivityFlow();
     }
-  }, [baseBranch, defaultModel, input, launchActivityFlow, loading, messages, repoFullName, repos, selectedModel, stopActivityFlow]);
+  }, [appendStep, baseBranch, defaultModel, input, loading, messages, repoFullName, repos, resetActivity, selectedModel]);
 
   const resetChat = useCallback(() => {
     setMessages([]);
     setInput('');
     setError('');
-    stopActivityFlow();
+    resetActivity();
     try {
       window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch }));
     } catch (_) {}
-  }, [baseBranch, repoFullName, selectedModel, stopActivityFlow]);
+  }, [baseBranch, repoFullName, resetActivity, selectedModel]);
 
   const selectedRepo = repos.find((r) => r.fullName === repoFullName);
   // Real branches from GitHub; fall back to just the current value while
@@ -650,6 +705,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
               <div className="message-bubble">
                 <div className="message-label">{message.role === 'user' ? 'You' : 'Assistant'}</div>
                 <MessageContent content={message.content} />
+                {message.usage && formatUsage(message.usage) && (
+                  <div className="helper-text mono" style={{ marginTop: 8, opacity: 0.75 }}>{formatUsage(message.usage)}</div>
+                )}
               </div>
             </div>
           ))}
@@ -685,7 +743,7 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
 
       <aside className="chat-sidepanel">
         <div className="sidepanel-title">Agent flow</div>
-        <div className="sidepanel-copy">A lightweight activity panel shows the request stages while the agent works.</div>
+        <div className="sidepanel-copy">Live progress streamed from the server as each stage actually happens — cloning, running aider, committing, pushing, opening the PR.</div>
         <div className="step-list">
           {(activitySteps.length === 0 ? ['Ready when you send a prompt'] : activitySteps).map((step, index) => {
             const isComplete = activitySteps.length > 0 && index < activeStep;
