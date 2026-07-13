@@ -564,8 +564,18 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     resetActivity();
 
     const selectedRepo = repos.find((r) => r.fullName === repoFullName);
-    const isActionRequest = /\b(add|create|build|change|modify|implement|fix|update|refactor|remove|write|generate|make|optimize|debug|patch|improve)\b/i.test(userPrompt);
-    const shouldRunAgent = Boolean(selectedRepo && isActionRequest);
+    // A repo is selected, so the default assumption is that the user wants
+    // an actual code change made (that's the whole point of this tool) —
+    // we only fall back to plain chat when the message reads as a genuine
+    // question ("what does X do", "why is Y happening", "can you explain...").
+    // Previously this was inverted: it required matching one of a small,
+    // exact-word-form list of action verbs (missed "resolve", "handle",
+    // "clean up", "adding", etc.), so most real task phrasings silently
+    // fell through to /api/chat and got generic advice instead of an
+    // actual aider run.
+    const looksLikeQuestion = /^\s*(what|why|how|when|where|who|which|whose|is|are|was|were|do|does|did|can|could|should|would|will|explain|describe|tell me|summari[sz]e|what's|what is)\b/i.test(userPrompt)
+      || /\?\s*$/.test(userPrompt.trim());
+    const shouldRunAgent = Boolean(selectedRepo) && !looksLikeQuestion;
 
     try {
       let assistantMessage = '';
