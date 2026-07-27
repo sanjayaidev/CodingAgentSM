@@ -1,1 +1,1 @@
-(public/index.html is a source file, no build artifacts, dependencies, or temp files in the changes)
+Nothing should be ignored based on the provided file changes. The modified files (`public/index.html` and `server.js`) are source code/config files and should not be added to .gitignore.

@@ -50,11 +50,6 @@
   .terminal-line-cmd { color: var(--accent); }
   .terminal-input-row { display: flex; gap: 8px; }
   .terminal-input-row input { flex: 1; }
-  .godot-card {
-    border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--panel-raised);
-    display: flex; flex-direction: column; gap: 8px;
-  }
-  .godot-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
   .status-dot.running { background: var(--accent); }
   .status-dot.stopped { background: var(--text-faint); }
@@ -947,24 +942,9 @@ function TerminalPanel() {
   const consoleIdRef = useRef(null);
   const outputRef = useRef(null);
 
-  const [godotProjectPath, setGodotProjectPath] = useState('');
-  const [godotArgsText, setGodotArgsText] = useState('');
-  const [godotStatus, setGodotStatus] = useState({ running: false });
-  const [godotBusy, setGodotBusy] = useState(false);
-
   useEffect(() => {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
   }, [lines]);
-
-  const refreshGodotStatus = useCallback(() => {
-    getJSON('/api/godot/status').then(setGodotStatus).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    refreshGodotStatus();
-    const id = window.setInterval(refreshGodotStatus, 4000);
-    return () => window.clearInterval(id);
-  }, [refreshGodotStatus]);
 
   const appendLine = useCallback((type, text) => {
     setLines((prev) => [...prev, { type, text }]);
@@ -1023,82 +1003,11 @@ function TerminalPanel() {
     }
   }, [appendLine, argsText, command, running]);
 
-  const startGodotServer = useCallback(async () => {
-    if (!godotProjectPath.trim()) return;
-    setGodotBusy(true);
-    try {
-      const data = await getJSON('/api/godot/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectPath: godotProjectPath.trim(), args: splitArgs(godotArgsText) }),
-      });
-      appendLine('system', `Godot server started (pid ${data.pid})`);
-    } catch (e) {
-      appendLine('stderr', `Godot start failed: ${e.message}`);
-    } finally {
-      setGodotBusy(false);
-      refreshGodotStatus();
-    }
-  }, [appendLine, godotArgsText, godotProjectPath, refreshGodotStatus]);
-
-  const stopGodotServer = useCallback(async () => {
-    setGodotBusy(true);
-    try {
-      await getJSON('/api/godot/stop', { method: 'POST' });
-      appendLine('system', 'Godot server stopping…');
-    } catch (e) {
-      appendLine('stderr', `Godot stop failed: ${e.message}`);
-    } finally {
-      setGodotBusy(false);
-      refreshGodotStatus();
-    }
-  }, [appendLine, refreshGodotStatus]);
-
   return (
     <div className="terminal-shell">
-      <div className="godot-card">
-        <div className="godot-card-header">
-          <div>
-            <span className={`status-dot ${godotStatus.running ? 'running' : 'stopped'}`} />
-            <strong>Godot headless server</strong>
-            <span className="helper-text" style={{ marginLeft: 8 }}>
-              {godotStatus.running
-                ? `running · pid ${godotStatus.pid} · up ${Math.round((godotStatus.uptimeMs || 0) / 1000)}s`
-                : 'not running'}
-            </span>
-          </div>
-        </div>
-        {!godotStatus.running ? (
-          <div className="terminal-toolbar">
-            <input
-              className="term-input" style={{ flex: 1, minWidth: 220 }}
-              placeholder="Project path (contains project.godot), e.g. workspaces/my-repo/server"
-              value={godotProjectPath}
-              onChange={(e) => setGodotProjectPath(e.target.value)}
-            />
-            <input
-              className="term-input" style={{ flex: 1, minWidth: 180 }}
-              placeholder="Extra args, e.g. --port 8910"
-              value={godotArgsText}
-              onChange={(e) => setGodotArgsText(e.target.value)}
-            />
-            <button type="button" className="term-btn accent" disabled={godotBusy || !godotProjectPath.trim()} onClick={startGodotServer}>
-              {godotBusy ? 'Starting…' : 'Start server'}
-            </button>
-          </div>
-        ) : (
-          <div className="terminal-toolbar">
-            <span className="helper-text mono">{godotStatus.projectPath} {(godotStatus.args || []).join(' ')}</span>
-            <button type="button" className="term-btn danger" disabled={godotBusy} onClick={stopGodotServer}>
-              {godotBusy ? 'Stopping…' : 'Stop server'}
-            </button>
-          </div>
-        )}
-      </div>
-
       <form className="terminal-toolbar" onSubmit={runCommand}>
         <select className="term-select" value={command} onChange={(e) => setCommand(e.target.value)}>
-          {['bash', 'sh', 'python3', 'pip', 'node', 'npm', 'godot'].map((c) => <option key={c} value={c}>{c}</option>)}
+          {['bash', 'sh', 'python3', 'pip', 'node', 'npm'].map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <input
           className="term-input" style={{ flex: 1 }}
@@ -1111,7 +1020,7 @@ function TerminalPanel() {
       </form>
       <div className="helper-text">
         Commands persist a working directory across runs (venvs, node_modules survive between calls) via a reused console session.
-        Allowed: bash, sh, python3, pip, node, npm, godot. This runs directly in the app's container — no extra sandboxing.
+        Allowed: bash, sh, python3, pip, node, npm. This runs directly in the app's container — no extra sandboxing.
       </div>
 
       <div className="terminal-output" ref={outputRef}>

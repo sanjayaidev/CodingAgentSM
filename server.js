@@ -1008,7 +1008,7 @@ app.post('/api/chat', resolveApiAuth, async (req, res) => {
 //   sensitive, rotate it if this is exposed to more than trusted callers,
 //   and consider this a first version — proper multi-tenant use would need
 //   real sandboxing (per-run containers, resource limits, network policy).
-const CONSOLE_ALLOWED_COMMANDS = new Set(['python3', 'python', 'pip', 'pip3', 'node', 'npm', 'bash', 'sh', 'godot']);
+const CONSOLE_ALLOWED_COMMANDS = new Set(['python3', 'python', 'pip', 'pip3', 'node', 'npm', 'bash', 'sh']);
 const CONSOLE_IDLE_MS = 2 * 60 * 60 * 1000; // reap workspaces idle > 2h
 const consoleWorkspaces = new Map(); // consoleId -> { dir, lastUsed }
 
@@ -1077,109 +1077,6 @@ app.delete('/api/console/:id', resolveApiAuth, (req, res) => {
   cleanup(entry.dir);
   consoleWorkspaces.delete(req.params.id);
   res.json({ ok: true });
-});
-
-// ---- Godot headless dedicated server ----
-//
-// Separate from /api/console/run: a Godot dedicated server is a long-running
-// process that needs to stay up independent of any single HTTP request/
-// stream, and typically needs to bind to a fixed port so it can be exposed
-// (e.g. via Railway's TCP Proxy — see README). This is a minimal process
-// manager: one Godot server at a time, controlled via start/stop/status,
-// with its output kept in a ring buffer you can poll via /logs.
-let godotServer = null; // { proc, startedAt, projectPath, args, logs: [] }
-const GODOT_LOG_LINES = 500;
-
-function pushGodotLog(stream, chunk) {
-  if (!godotServer) return;
-  const lines = chunk.toString().split('\n').filter(Boolean);
-  for (const line of lines) {
-    godotServer.logs.push({ stream, line, at: Date.now() });
-  }
-  if (godotServer.logs.length > GODOT_LOG_LINES) {
-    godotServer.logs.splice(0, godotServer.logs.length - GODOT_LOG_LINES);
-  }
-}
-
-app.post('/api/godot/start', resolveApiAuth, (req, res) => {
-  if (godotServer && godotServer.proc.exitCode == null) {
-    return res.status(409).json({ error: 'A Godot server is already running', pid: godotServer.proc.pid });
-  }
-  const { projectPath, binaryPath, mainPack, args = [] } = req.body || {};
-  if (!projectPath && !binaryPath) {
-    return res.status(400).json({
-      error: 'Provide either projectPath (a directory containing project.godot, run via the system godot engine) '
-        + 'or binaryPath (a prebuilt exported server executable, run directly — e.g. from a repo that ships its '
-        + 'own godot_server binary + .pck instead of source).',
-    });
-  }
-  if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
-    return res.status(400).json({ error: 'args must be an array of strings' });
-  }
-
-  // Two mutually exclusive launch modes:
-  let executable;
-  let fullArgs;
-  if (binaryPath) {
-    // Prebuilt export: run the shipped executable directly. Not the system
-    // `godot` engine at all — this binary already has the game baked in
-    // (Godot's export process produces a standalone executable per-platform).
-    executable = binaryPath;
-    fullArgs = ['--headless', ...(mainPack ? ['--main-pack', mainPack] : []), ...args];
-    // Make sure it's actually executable (repos cloned via git often need this,
-    // and it's a common source of "exec format error"/"permission denied").
-    try { fs.chmodSync(binaryPath, 0o755); } catch (_) {}
-  } else {
-    // Source project: use the system-installed godot engine against
-    // project.godot, same as before.
-    executable = 'godot';
-    fullArgs = ['--headless', '--path', projectPath, ...args];
-  }
-
-  let proc;
-  try {
-    proc = spawn(executable, fullArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-  } catch (err) {
-    return res.status(500).json({ error: `Failed to launch ${executable}: ${err.message}` });
-  }
-
-  godotServer = { proc, startedAt: Date.now(), projectPath: projectPath || null, binaryPath: binaryPath || null, args: fullArgs, logs: [] };
-  proc.stdout.on('data', (chunk) => pushGodotLog('stdout', chunk));
-  proc.stderr.on('data', (chunk) => pushGodotLog('stderr', chunk));
-  proc.on('exit', (code, signal) => {
-    if (godotServer && godotServer.proc === proc) {
-      pushGodotLog('system', `process exited (code=${code}, signal=${signal})`);
-    }
-  });
-
-  res.json({ started: true, pid: proc.pid, projectPath: projectPath || null, binaryPath: binaryPath || null, args: fullArgs });
-});
-
-app.post('/api/godot/stop', resolveApiAuth, (req, res) => {
-  if (!godotServer || godotServer.proc.exitCode != null) {
-    return res.status(404).json({ error: 'No Godot server is running' });
-  }
-  godotServer.proc.kill('SIGTERM');
-  res.json({ stopping: true, pid: godotServer.proc.pid });
-});
-
-app.get('/api/godot/status', resolveApiAuth, (req, res) => {
-  if (!godotServer) return res.json({ running: false });
-  const running = godotServer.proc.exitCode == null;
-  res.json({
-    running,
-    pid: godotServer.proc.pid,
-    projectPath: godotServer.projectPath,
-    binaryPath: godotServer.binaryPath,
-    args: godotServer.args,
-    uptimeMs: running ? Date.now() - godotServer.startedAt : null,
-    exitCode: godotServer.proc.exitCode,
-  });
-});
-
-app.get('/api/godot/logs', resolveApiAuth, (req, res) => {
-  if (!godotServer) return res.json({ logs: [] });
-  res.json({ logs: godotServer.logs });
 });
 
 // ---- static UI ----
