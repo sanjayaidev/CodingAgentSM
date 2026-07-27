@@ -41,17 +41,27 @@ const AGENT_API_KEY = process.env.AGENT_API_KEY || '';
 const NIM_API_BASE = process.env.NIM_API_BASE || 'https://integrate.api.nvidia.com/v1';
 const NIM_API_KEY = process.env.NIM_API_KEY || '';
 const ALLOWED_MODELS = [
-  'deepseek-ai/deepseek-v4-flash',
-  'deepseek-ai/deepseek-v4-pro',
-  'mistralai/ministral-14b-instruct-2512',
-  'mistralai/mistral-large-3-675b-instruct-2512',
+  // Meta models - Text only
+  'meta/llama-3.1-70b-instruct',
+  'meta/llama-3.1-8b-instruct',
+  'meta/llama-3.2-11b-vision-instruct',
+  'meta/llama-3.2-3b-instruct',
+  'meta/llama-3.2-90b-vision-instruct',
+  
+  // Mistral models
   'mistralai/mistral-medium-3.5-128b',
-  'mistralai/mistral-small-4-119b-2603',
-  'mistralai/mixtral-8x7b-instruct-v0.1',
+  
+  // NVIDIA text models (excluding safety/content moderation)
+  'nvidia/ising-calibration-1-35b-a3b',
+  'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+  'nvidia/llama-3.3-nemotron-super-49b-v1',
+  'nvidia/nemotron-3-nano-30b-a3b',
+  'nvidia/nemotron-3-super-120b-a12b',
+  'nvidia/nemotron-nano-12b-v2-vl',
 ];
 const DEFAULT_MODEL = process.env.NIM_MODEL && ALLOWED_MODELS.includes(process.env.NIM_MODEL)
   ? process.env.NIM_MODEL
-  : 'deepseek-ai/deepseek-v4-pro';
+  : 'meta/llama-3.1-70b-instruct';
 
 // Best-effort context window (tokens) used only to show a "% of context used"
 // hint in the UI/API responses. NIM doesn't expose this per-model, so it's
