@@ -487,10 +487,31 @@ async function runGodotHeadlessCheck({ cwd, timeoutMs = 30000, quitAfterFrames =
   };
 }
 
+// Pure helper (easy to unit test) for the "empty PR that only changes
+// .gitignore" guard: given `git diff --name-only` output, true if every
+// changed path is exactly .gitignore (and there's at least one change).
+function isOnlyGitignoreChange(nameOnlyDiffOutput) {
+  const files = String(nameOnlyDiffOutput || '').trim().split('\n').filter(Boolean);
+  return files.length > 0 && files.every((f) => f === '.gitignore');
+}
+
 async function invokeAider({ workDir, logsDir, chosenModel, taskText, aiderEnv }) {
   const aiderArgs = [
     '--yes-always',
     '--no-check-update',
+    // BUG FIX: without this, aider's own check_gitignore() step (which runs
+    // before it does anything else) asks "Add .aider* to .gitignore
+    // (recommended)?" and --yes-always auto-answers "yes" to that prompt too
+    // — so on nearly every run aider silently rewrites the target repo's
+    // .gitignore as its very first action. If the actual requested change
+    // then fails or produces no edits (bad instructions, model hiccup,
+    // nothing to do, etc.), that .gitignore tweak is the ONLY diff left in
+    // the tree. It's a real, tracked file change (COMMIT_EXCLUDE_PATHSPECS
+    // only excludes .aider*/.godot files themselves, not edits to
+    // .gitignore), so it sails through commitPendingChanges, gets pushed,
+    // and turns into an opened-but-empty-looking PR. --no-gitignore stops
+    // aider from touching .gitignore at all.
+    '--no-gitignore',
     '--model', `openai/${chosenModel}`,
     '--message', taskText,
     // Keep aider's own bookkeeping files entirely out of the repo working
@@ -600,8 +621,17 @@ async function runAgentTask({
 
     // Check whether aider actually produced any commits on top of base
     const { stdout: diffStat } = await run('git', ['diff', '--stat', `origin/${baseBranch}`, 'HEAD'], { cwd: workDir });
-    if (!diffStat.trim()) {
-      step('No changes were made by aider — skipping push/PR');
+    // Defense in depth on top of --no-gitignore above: if the only file
+    // touched is .gitignore, this isn't a real task result — don't open a
+    // PR for it (this is precisely the "empty PR that only changes
+    // .gitignore" failure mode; see invokeAider for the root cause).
+    const { stdout: changedFiles } = await run(
+      'git', ['diff', '--name-only', `origin/${baseBranch}`, 'HEAD'], { cwd: workDir }
+    ).catch(() => ({ stdout: '' }));
+    const onlyTouchesGitignore = isOnlyGitignoreChange(changedFiles);
+    if (!diffStat.trim() || onlyTouchesGitignore) {
+      if (onlyTouchesGitignore) step('Only change was to .gitignore — treating as no real change, skipping push/PR');
+      else step('No changes were made by aider — skipping push/PR');
       cleanup(workDir);
       cleanup(logsDir);
       return {
@@ -1096,4 +1126,5 @@ module.exports = {
   app,
   collectRepositoryContext,
   commitPendingChanges,
+  isOnlyGitignoreChange,
 };

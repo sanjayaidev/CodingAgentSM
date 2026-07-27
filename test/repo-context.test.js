@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const { collectRepositoryContext, commitPendingChanges } = require('../server');
+const { collectRepositoryContext, commitPendingChanges, isOnlyGitignoreChange } = require('../server');
 const { resolveBaseUrl } = require('../lib/github-oauth');
 
 test('collectRepositoryContext reads key project files from a local repo', async () => {
@@ -99,4 +99,52 @@ test('commitPendingChanges reports no changes when only aider bookkeeping files 
 
   const result = await commitPendingChanges({ cwd: tempDir, task: 'No-op' });
   assert.equal(result.committed, false);
+});
+
+test('isOnlyGitignoreChange flags a diff that only touches .gitignore', () => {
+  assert.equal(isOnlyGitignoreChange('.gitignore\n'), true);
+  assert.equal(isOnlyGitignoreChange('.gitignore'), true);
+});
+
+test('isOnlyGitignoreChange is false for a real change, even alongside .gitignore', () => {
+  assert.equal(isOnlyGitignoreChange('.gitignore\nsrc/index.js\n'), false);
+  assert.equal(isOnlyGitignoreChange('src/index.js\n'), false);
+});
+
+test('isOnlyGitignoreChange is false for no changes at all', () => {
+  assert.equal(isOnlyGitignoreChange(''), false);
+  assert.equal(isOnlyGitignoreChange('\n'), false);
+});
+
+// Regression test for the reported bug: aider's own check_gitignore() step
+// auto-adds ".aider*" to .gitignore under --yes-always, and unlike
+// .aider* bookkeeping files, an edit to .gitignore itself is a real tracked
+// change that commitPendingChanges will happily commit — it's runAgentTask's
+// job (via isOnlyGitignoreChange) to then recognize that as "no real
+// change" before pushing/opening a PR. This test locks in that
+// commitPendingChanges' behavior here hasn't silently changed to also
+// exclude .gitignore (which would make the runAgentTask guard redundant but
+// harmless) or, worse, to start swallowing real .gitignore edits users do
+// want committed.
+test('commitPendingChanges DOES commit a lone .gitignore edit (guarding against it is runAgentTask\'s job)', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coding-agent-gitignore-'));
+  execFileSync('git', ['init'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'Test User'], { cwd: tempDir, stdio: 'ignore' });
+  fs.writeFileSync(path.join(tempDir, 'README.md'), '# test\n');
+  execFileSync('git', ['add', 'README.md'], { cwd: tempDir, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: tempDir, stdio: 'ignore' });
+
+  // Simulate aider's check_gitignore() auto-adding its own bookkeeping
+  // pattern to .gitignore (what happens without --no-gitignore).
+  fs.writeFileSync(path.join(tempDir, '.gitignore'), '.aider*\n');
+
+  const result = await commitPendingChanges({ cwd: tempDir, task: 'Some task that made no real edits' });
+  assert.equal(result.committed, true);
+
+  const committedFiles = execFileSync('git', ['show', '--stat', '--name-only', 'HEAD'], { cwd: tempDir, encoding: 'utf8' });
+  assert.match(committedFiles, /\.gitignore/);
+
+  const nameOnlyDiff = execFileSync('git', ['diff', '--name-only', 'HEAD~1', 'HEAD'], { cwd: tempDir, encoding: 'utf8' });
+  assert.equal(isOnlyGitignoreChange(nameOnlyDiff), true);
 });

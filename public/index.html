@@ -159,6 +159,17 @@
     border-radius: 8px; border: 1px solid var(--border); background: var(--panel-raised);
     color: var(--text); padding: 8px 12px; font-size: 13px; cursor: pointer;
   }
+  .mode-toggle {
+    display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .mode-toggle-btn {
+    border: none; background: var(--panel-raised); color: var(--text-dim);
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mode-toggle-btn + .mode-toggle-btn { border-left: 1px solid var(--border); }
+  .mode-toggle-btn.active {
+    background: var(--accent); color: #07110a;
+  }
   .chat-window {
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
     min-height: 340px; max-height: 480px; overflow: auto; padding: 14px;
@@ -459,6 +470,9 @@ function MessageContent({ content }) {
 function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  // 'chat'  -> just talk about the selected repo (clones + reads it, no writes)
+  // 'code'  -> actually runs aider against the repo and opens a PR
+  const [mode, setMode] = useState('chat');
   const [selectedModel, setSelectedModel] = useState(defaultModel || '');
   const [repoFullName, setRepoFullName] = useState('');
   const [baseBranch, setBaseBranch] = useState('main');
@@ -480,6 +494,7 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
         if (parsed.model) setSelectedModel(parsed.model);
         if (parsed.repo) setRepoFullName(parsed.repo);
         if (parsed.baseBranch) setBaseBranch(parsed.baseBranch);
+        if (parsed.mode === 'chat' || parsed.mode === 'code') setMode(parsed.mode);
       }
     } catch (_) {}
   }, []);
@@ -521,9 +536,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel, repo: repoFullName, baseBranch }));
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel, repo: repoFullName, baseBranch, mode }));
     } catch (_) {}
-  }, [messages, selectedModel, repoFullName, baseBranch]);
+  }, [messages, selectedModel, repoFullName, baseBranch, mode]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -559,18 +574,11 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     resetActivity();
 
     const selectedRepo = repos.find((r) => r.fullName === repoFullName);
-    // A repo is selected, so the default assumption is that the user wants
-    // an actual code change made (that's the whole point of this tool) —
-    // we only fall back to plain chat when the message reads as a genuine
-    // question ("what does X do", "why is Y happening", "can you explain...").
-    // Previously this was inverted: it required matching one of a small,
-    // exact-word-form list of action verbs (missed "resolve", "handle",
-    // "clean up", "adding", etc.), so most real task phrasings silently
-    // fell through to /api/chat and got generic advice instead of an
-    // actual aider run.
-    const looksLikeQuestion = /^\s*(what|why|how|when|where|who|which|whose|is|are|was|were|do|does|did|can|could|should|would|will|explain|describe|tell me|summari[sz]e|what's|what is)\b/i.test(userPrompt)
-      || /\?\s*$/.test(userPrompt.trim());
-    const shouldRunAgent = Boolean(selectedRepo) && !looksLikeQuestion;
+    // Explicit toggle, not a guess: Code mode runs aider and opens a PR,
+    // Chat mode only ever reads the repo to answer questions. (This used to
+    // be an inferred "does this look like a question" heuristic, which
+    // silently misrouted real task phrasings to plain chat, or vice versa.)
+    const shouldRunAgent = mode === 'code' && Boolean(selectedRepo);
 
     try {
       let assistantMessage = '';
@@ -660,7 +668,7 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     } finally {
       setLoading(false);
     }
-  }, [appendStep, baseBranch, defaultModel, input, loading, messages, repoFullName, repos, resetActivity, selectedModel]);
+  }, [appendStep, baseBranch, defaultModel, input, loading, messages, mode, repoFullName, repos, resetActivity, selectedModel]);
 
   const resetChat = useCallback(() => {
     setMessages([]);
@@ -668,9 +676,9 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
     setError('');
     resetActivity();
     try {
-      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch }));
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch, mode }));
     } catch (_) {}
-  }, [baseBranch, repoFullName, resetActivity, selectedModel]);
+  }, [baseBranch, mode, repoFullName, resetActivity, selectedModel]);
 
   const selectedRepo = repos.find((r) => r.fullName === repoFullName);
   // Real branches from GitHub; fall back to just the current value while
@@ -691,6 +699,24 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
             </div>
           </div>
           <div className="toolbar-actions">
+            <div className="mode-toggle" role="group" aria-label="Mode">
+              <button
+                type="button"
+                className={`mode-toggle-btn${mode === 'chat' ? ' active' : ''}`}
+                onClick={() => setMode('chat')}
+                title="Clone the repo and talk about it — no writes, no PRs"
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-btn${mode === 'code' ? ' active' : ''}`}
+                onClick={() => setMode('code')}
+                title="Run aider against the repo and open a PR"
+              >
+                Code
+              </button>
+            </div>
             <select className="model-select mono" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
               {models.length === 0 && <option value="">Loading…</option>}
               {models.map((m) => <option key={m} value={m}>{m}</option>)}
@@ -736,7 +762,10 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
         <div className="chat-window">
           {messages.length === 0 && !loading && (
             <div className="chat-empty">
-              Ask what this repository does, request code, or describe a change you want made.<br />
+              {mode === 'code'
+                ? <>Code mode: describe a change and the agent will run aider against the selected repo and open a PR.</>
+                : <>Chat mode: ask what this repository does — it's cloned and read, nothing is written or pushed.</>}
+              <br />
               The reply renders as markdown and code blocks include a copy button.
             </div>
           )}
@@ -767,7 +796,7 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question or tell the agent what to change in the selected repo…"
+              placeholder={mode === 'code' ? 'Describe the change you want made to the selected repo…' : 'Ask a question about the selected repo…'}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault();
@@ -777,7 +806,13 @@ function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
             />
             <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
           </div>
-          {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : <div className="helper-text">If you ask for an implementation change and a repo is selected, the app will run it and show the result here.</div>}
+          {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : (
+            <div className="helper-text">
+              {mode === 'code'
+                ? (repoFullName ? 'Code mode — this will run aider and open a PR on the selected repo.' : 'Select a repo to run code mode.')
+                : 'Chat mode — read-only, no changes are made to the repo.'}
+            </div>
+          )}
         </form>
       </div>
 
