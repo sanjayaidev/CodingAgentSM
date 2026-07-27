@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Coding Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0e0f;
+    --panel: #131619;
+    --panel-raised: #191d21;
+    --border: #262b2f;
+    --text: #e6e9ea;
+    --text-dim: #8a9298;
+    --text-faint: #565d62;
+    --accent: #7ee787;
+    --accent-dim: #2e5f34;
+    --amber: #e3b341;
+    --red: #f47067;
+    --focus: #58a6ff;
+    --surface: #0a0b0c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  code, .mono { font-family: 'JetBrains Mono', monospace; }
+  .tab-bar { display: flex; gap: 4px; padding: 10px 24px 0; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .tab-btn {
+    background: transparent; border: none; color: var(--text-dim); font-size: 13px; font-weight: 500;
+    padding: 10px 14px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+  .terminal-shell { display: flex; flex-direction: column; height: calc(100vh - 108px); padding: 16px 24px; gap: 12px; }
+  .terminal-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .terminal-output {
+    flex: 1; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  }
+  .terminal-line-stdout { color: var(--text); }
+  .terminal-line-stderr { color: var(--red); }
+  .terminal-line-system { color: var(--text-faint); font-style: italic; }
+  .terminal-line-cmd { color: var(--accent); }
+  .terminal-input-row { display: flex; gap: 8px; }
+  .terminal-input-row input { flex: 1; }
+  .godot-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; background: var(--panel-raised);
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .godot-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .status-dot.running { background: var(--accent); }
+  .status-dot.stopped { background: var(--text-faint); }
+  .term-select, .term-input, .term-btn {
+    font-family: inherit; font-size: 13px; color: var(--text); background: var(--panel-raised);
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  }
+  .term-btn { cursor: pointer; font-weight: 600; }
+  .term-btn:hover { border-color: var(--focus); }
+  .term-btn:disabled { opacity: 0.5; cursor: default; }
+  .term-btn.danger { color: var(--red); border-color: var(--red); }
+  .term-btn.accent { background: var(--accent); color: #07110a; border-color: var(--accent); }
+  ::selection { background: var(--accent-dim); }
+  a { color: var(--focus); }
+  button:focus-visible, select:focus-visible, textarea:focus-visible, input:focus-visible {
+    outline: 2px solid var(--focus); outline-offset: 2px;
+  }
+  #root { min-height: 100vh; }
+  .app-shell {
+    max-width: 1280px; margin: 0 auto; padding: 24px 24px 80px;
+    display: grid; gap: 22px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+  }
+  .chat-card {
+    padding: 22px;
+    display: grid; gap: 16px;
+  }
+  .chat-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.55fr);
+    gap: 16px;
+    align-items: start;
+  }
+  .chat-sidepanel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+    position: sticky;
+    top: 20px;
+  }
+  .sidepanel-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .sidepanel-copy {
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .step-list {
+    display: grid;
+    gap: 8px;
+  }
+  .step-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 13px;
+    background: rgba(255,255,255,0.02);
+  }
+  .step-item.active {
+    border-color: rgba(126,231,135,0.35);
+    color: var(--text);
+    background: rgba(126,231,135,0.08);
+  }
+  .step-item.complete {
+    border-color: rgba(126,231,135,0.18);
+    color: var(--text);
+    background: rgba(126,231,135,0.05);
+  }
+  .step-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
+  }
+  .chat-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  }
+  .chat-header {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .chat-title {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+  }
+  .chat-subtitle {
+    color: var(--text-dim); font-size: 13px; margin-top: 2px;
+  }
+  .toolbar-actions {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .ghost-btn {
+    border-radius: 8px; border: 1px solid var(--border); background: var(--panel-raised);
+    color: var(--text); padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  .mode-toggle {
+    display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .mode-toggle-btn {
+    border: none; background: var(--panel-raised); color: var(--text-dim);
+    padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .mode-toggle-btn + .mode-toggle-btn { border-left: 1px solid var(--border); }
+  .mode-toggle-btn.active {
+    background: var(--accent); color: #07110a;
+  }
+  .chat-window {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    min-height: 340px; max-height: 480px; overflow: auto; padding: 14px;
+    display: grid; gap: 12px;
+  }
+  .message-row { display: flex; }
+  .message-row.user { justify-content: flex-end; }
+  .message-bubble {
+    max-width: min(84%, 760px); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border);
+    line-height: 1.55; font-size: 14px; white-space: pre-wrap;
+  }
+  .message-row.user .message-bubble {
+    background: linear-gradient(135deg, rgba(126,231,135,0.16), rgba(88,166,255,0.12)); border-color: rgba(126,231,135,0.18);
+  }
+  .message-row.assistant .message-bubble {
+    background: var(--panel-raised);
+  }
+  .message-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin-bottom: 6px;
+  }
+  .message-markdown p { margin: 0 0 10px; }
+  .message-markdown p:last-child { margin-bottom: 0; }
+  .message-markdown ul, .message-markdown ol { margin: 8px 0 10px 18px; padding: 0; }
+  .message-markdown code { background: rgba(255,255,255,0.08); border-radius: 4px; padding: 0.1em 0.3em; }
+  .message-markdown pre { margin: 10px 0 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); }
+  .message-markdown pre code { display: block; padding: 12px 14px; overflow: auto; background: #08090a; }
+  .code-block { margin: 10px 0 0; }
+  .code-block-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); border-bottom: none; border-radius: 10px 10px 0 0;
+    font-size: 12px; color: var(--text-dim);
+  }
+  .copy-btn {
+    border: none; border-radius: 6px; padding: 4px 8px; background: rgba(88,166,255,0.16); color: var(--text); cursor: pointer;
+    font-size: 12px;
+  }
+  .chat-empty {
+    color: var(--text-faint); padding: 26px 8px; text-align: center; line-height: 1.7;
+  }
+  .composer {
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .composer-row {
+    display: flex; gap: 10px; align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1; min-height: 94px; resize: vertical; border-radius: 10px; padding: 11px 12px; background: var(--panel-raised);
+    color: var(--text); border: 1px solid var(--border);
+    font-size: 14px; line-height: 1.5;
+  }
+  .composer button.primary { border-radius: 10px; border: none; background: var(--accent); color: #07110a; padding: 11px 16px; cursor: pointer; font-weight: 700; }
+  .composer button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .model-select {
+    width: 100%; max-width: 240px; background: var(--panel-raised); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  .helper-text {
+    color: var(--text-faint); font-size: 12px; line-height: 1.5;
+  }
+  .dashboard-grid {
+    max-width: 1280px; margin: 0 auto; padding: 0 24px 80px;
+    display: grid; grid-template-columns: minmax(0, 440px) minmax(0, 1fr); gap: 22px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .dashboard-grid { grid-template-columns: 1fr; padding: 0 18px 60px; }
+    .dashboard-grid > *:last-child { position: static !important; max-height: none !important; }
+    .chat-layout { grid-template-columns: 1fr; }
+    .chat-sidepanel { position: static; }
+    .composer-row { flex-direction: column; align-items: stretch; }
+    .model-select { max-width: none; }
+  }
+  #root-fallback {
+    display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    color: var(--text-faint); font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  }
+  #boot-error {
+    display: none; max-width: 560px; margin: 80px auto; padding: 20px 22px;
+    background: #1a1010; border: 1px solid #4a2323; border-radius: 10px;
+    color: #f47067; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6;
+    white-space: pre-wrap;
+  }
+</style>
+</head>
+<body>
+<div id="root"><div id="root-fallback">Loading…</div></div>
+<div id="boot-error"></div>
+
+<script>
+  window.addEventListener('error', function (e) {
+    var box = document.getElementById('boot-error');
+    if (!box) return;
+    box.style.display = 'block';
+    box.textContent = 'UI failed to load: ' + (e.message || e.error || 'unknown error') +
+      (e.filename ? '\n(' + e.filename + ':' + e.lineno + ')' : '');
+  });
+</script>
+
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+const CHAT_STORAGE_KEY = 'coding-agent-chat-v1';
+
+async function getJSON(url, opts) {
+  const r = await fetch(url, { credentials: 'same-origin', ...opts });
+  let data = null;
+  try { data = await r.json(); } catch (_) {}
+  if (!r.ok) throw Object.assign(new Error((data && data.error) || r.statusText), { status: r.status, data });
+  return data;
+}
+
+// Renders the token-usage line shown under assistant replies. Two shapes:
+// - plain chat turns: exact usage from the NIM API ({prompt_tokens, completion_tokens, total_tokens})
+// - agent/aider turns: only an approximate context size is knowable (aider manages its own LLM calls internally)
+function formatUsage(usage) {
+  if (!usage) return null;
+  if (usage.prompt_tokens != null) {
+    const bits = [`${usage.prompt_tokens} sent`];
+    if (usage.completion_tokens != null) bits.push(`${usage.completion_tokens} received`);
+    let label = bits.join(' · ');
+    if (usage.total_tokens != null) {
+      label += ` · ${usage.total_tokens} total`;
+      if (usage.contextWindow) {
+        const pct = Math.round((usage.total_tokens / usage.contextWindow) * 100);
+        label += ` (~${pct}% of ${usage.contextWindow}-token context)`;
+      }
+    }
+    if (usage.estimated) label += ' — estimated';
+    return label;
+  }
+  if (usage.approxContextTokens != null) {
+    let label = `~${usage.approxContextTokens} tokens of context sent to aider (approx)`;
+    if (usage.aiderTokenSummary) {
+      label += ` · aider reported ${usage.aiderTokenSummary.sent} sent / ${usage.aiderTokenSummary.received} received`;
+    }
+    return label;
+  }
+  return null;
+}
+
+function BranchMark({ size = 22, color = 'var(--accent)' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="6" cy="5" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <circle cx="6" cy="19" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <circle cx="18" cy="12" r="2.4" stroke={color} strokeWidth="1.6"/>
+      <path d="M6 7.4V16.6" stroke={color} strokeWidth="1.6"/>
+      <path d="M6 8C6 12 10 12 15.7 12" stroke={color} strokeWidth="1.6"/>
+    </svg>
+  );
+}
+
+function TopBar({ session, onLogout }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '18px 28px', borderBottom: '1px solid var(--border)',
+      background: 'var(--panel)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <BranchMark />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.01em' }}>Coding Agent</div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>chat · aider · NVIDIA NIM</div>
+        </div>
+      </div>
+      {session && session.loggedIn ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <span className="mono" style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+            <span style={{ color: 'var(--accent)' }}>●</span> {session.githubLogin || 'connected'}
+          </span>
+          <button onClick={onLogout} style={{
+            background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-dim)',
+            borderRadius: 6, padding: '6px 12px', fontSize: 13, cursor: 'pointer'
+          }}>Disconnect</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectScreen({ githubConfigured }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      minHeight: '70vh', padding: 24, textAlign: 'center'
+    }}>
+      <BranchMark size={40} />
+      <h1 style={{ fontSize: 22, marginTop: 18, marginBottom: 8, fontWeight: 700 }}>Connect a GitHub account</h1>
+      <p style={{ color: 'var(--text-dim)', maxWidth: 420, lineHeight: 1.6, marginBottom: 26 }}>
+        The agent needs repo access to clone, branch, and open pull requests on your behalf.
+        Your token stays server-side — it's never sent to this page.
+      </p>
+      {githubConfigured ? (
+        <a href="/auth/github" style={{
+          display: 'inline-flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+          background: 'var(--text)', color: 'var(--bg)', fontWeight: 600, fontSize: 14,
+          padding: '11px 20px', borderRadius: 8
+        }}>
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Connect GitHub
+        </a>
+      ) : (
+        <div className="mono" style={{
+          fontSize: 12.5, color: 'var(--amber)', border: '1px solid #4d3d1a', background: '#1f1a0d',
+          borderRadius: 8, padding: '12px 16px', maxWidth: 460, textAlign: 'left', lineHeight: 1.7
+        }}>
+          GITHUB_CLIENT_ID isn't set on the server yet.<br/>
+          Register an OAuth App at github.com/settings/developers, then set
+          GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET / APP_BASE_URL in Railway.
+        </div>
+      )}
+    </div>
+  );
+}
+
+const labelStyle = {
+  display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
+  textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8
+};
+const inputStyle = {
+  width: '100%', background: 'var(--panel-raised)', border: '1px solid var(--border)',
+  color: 'var(--text)', borderRadius: 8, padding: '11px 12px', fontSize: 14,
+  fontFamily: 'inherit'
+};
+
+function RepoSelect({ repos, value, onChange, loading, error }) {
+  return (
+    <div>
+      <label style={labelStyle}>Repository</label>
+      {loading ? (
+        <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '10px 0' }}>Loading repos…</div>
+      ) : error ? (
+        <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '10px 0' }}>{error}</div>
+      ) : (
+        <select value={value} onChange={onChange} style={inputStyle}>
+          <option value="">Select a repo…</option>
+          {repos.map((r) => (
+            <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
+function buildMarkdownHtml(markdown) {
+  if (!window.marked) return `<p>${String(markdown || '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]))}</p>`;
+  const renderer = new window.marked.Renderer();
+  renderer.code = function ({ text, lang }) {
+    const language = lang || '';
+    const code = String(text).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const encoded = encodeURIComponent(text);
+    return `<div class="code-block"><div class="code-block-toolbar"><span>${language || 'code'}</span><button type="button" class="copy-btn" data-code="${encoded}">Copy</button></div><pre><code class="language-${language}">${code}</code></pre></div>`;
+  };
+  const html = window.marked.parse(markdown || '', { breaks: true, gfm: true, renderer });
+  return typeof html === 'string' ? html : '';
+}
+
+function MessageContent({ content }) {
+  const [html, setHtml] = useState('');
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    setHtml(buildMarkdownHtml(content));
+  }, [content]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const buttons = containerRef.current.querySelectorAll('.copy-btn');
+    const handlers = [];
+    buttons.forEach((button) => {
+      const handler = async () => {
+        const raw = button.getAttribute('data-code') || '';
+        const text = decodeURIComponent(raw);
+        try {
+          await navigator.clipboard.writeText(text);
+          const prev = button.textContent;
+          button.textContent = 'Copied';
+          window.setTimeout(() => { button.textContent = prev; }, 1200);
+        } catch (_) {}
+      };
+      button.addEventListener('click', handler);
+      handlers.push(handler);
+    });
+    return () => {
+      buttons.forEach((button, index) => button.removeEventListener('click', handlers[index]));
+    };
+  }, [html]);
+
+  return <div ref={containerRef} className="message-markdown" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function ChatPanel({ models, defaultModel, repos, reposLoading, reposError }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  // 'chat'  -> just talk about the selected repo (clones + reads it, no writes)
+  // 'code'  -> actually runs aider against the repo and opens a PR
+  const [mode, setMode] = useState('chat');
+  const [selectedModel, setSelectedModel] = useState(defaultModel || '');
+  const [repoFullName, setRepoFullName] = useState('');
+  const [baseBranch, setBaseBranch] = useState('main');
+  const [branches, setBranches] = useState([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesError, setBranchesError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [activitySteps, setActivitySteps] = useState([]);
+  const [activeStep, setActiveStep] = useState(0);
+  const endRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CHAT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.messages) setMessages(parsed.messages);
+        if (parsed.model) setSelectedModel(parsed.model);
+        if (parsed.repo) setRepoFullName(parsed.repo);
+        if (parsed.baseBranch) setBaseBranch(parsed.baseBranch);
+        if (parsed.mode === 'chat' || parsed.mode === 'code') setMode(parsed.mode);
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
+    if (!defaultModel) return;
+    setSelectedModel((prev) => prev || defaultModel);
+  }, [defaultModel]);
+
+  useEffect(() => {
+    const repo = repos.find((r) => r.fullName === repoFullName);
+    if (!repo) { setBranches([]); return; }
+
+    // Pre-fill with the known default branch immediately so the field isn't
+    // empty while the real branch list loads.
+    setBaseBranch((prev) => prev || repo.defaultBranch || 'main');
+
+    let cancelled = false;
+    setBranchesLoading(true);
+    setBranchesError('');
+    getJSON(`/api/branches?repo=${encodeURIComponent(repo.fullName)}`)
+      .then((d) => {
+        if (cancelled) return;
+        const names = d.branches || [];
+        setBranches(names);
+        // Snap to a branch that actually exists on this repo, preferring
+        // whatever was already selected, then the repo's real default branch.
+        setBaseBranch((prev) => {
+          if (names.includes(prev)) return prev;
+          if (repo.defaultBranch && names.includes(repo.defaultBranch)) return repo.defaultBranch;
+          return names[0] || repo.defaultBranch || 'main';
+        });
+      })
+      .catch((e) => { if (!cancelled) setBranchesError(e.message); })
+      .finally(() => { if (!cancelled) setBranchesLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [repoFullName, repos]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages, model: selectedModel, repo: repoFullName, baseBranch, mode }));
+    } catch (_) {}
+  }, [messages, selectedModel, repoFullName, baseBranch, mode]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  // Real (non-simulated) activity tracking: appendStep is called only when
+  // something actually happens — a "step" event from /agent/run/stream, or
+  // a genuine before/after transition around a fetch. No timers.
+  const appendStep = useCallback((msg) => {
+    setActivitySteps((prev) => {
+      const next = [...prev, msg];
+      setActiveStep(next.length - 1);
+      return next;
+    });
+  }, []);
+
+  const resetActivity = useCallback(() => {
+    setActivitySteps([]);
+    setActiveStep(0);
+  }, []);
+
+  const handleSend = useCallback(async (event) => {
+    event.preventDefault();
+    const userPrompt = input.trim();
+    if (!userPrompt || loading) return;
+
+    const priorMessages = messages; // conversation before this turn — this is what gets folded into the aider task as context
+    const nextMessages = [...messages, { role: 'user', content: userPrompt }];
+    setMessages(nextMessages);
+    setInput('');
+    setError('');
+    setLoading(true);
+    resetActivity();
+
+    const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+    // Explicit toggle, not a guess: Code mode runs aider and opens a PR,
+    // Chat mode only ever reads the repo to answer questions. (This used to
+    // be an inferred "does this look like a question" heuristic, which
+    // silently misrouted real task phrasings to plain chat, or vice versa.)
+    const shouldRunAgent = mode === 'code' && Boolean(selectedRepo);
+
+    try {
+      let assistantMessage = '';
+      let usage = null;
+
+      if (shouldRunAgent) {
+        appendStep('Preparing request');
+        const resp = await fetch('/agent/run/stream', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repoUrl: selectedRepo ? selectedRepo.htmlUrl : `https://github.com/${repoFullName}`,
+            task: userPrompt,
+            // Prior chat turns, so aider (a fresh clone each run) can resolve
+            // references like "the text you gave me" — this is the actual
+            // fix for chat<->aider context not persisting across turns.
+            context: priorMessages,
+            baseBranch,
+            model: selectedModel || defaultModel || undefined,
+          }),
+        });
+
+        if (!resp.ok || !resp.body) {
+          let data = {};
+          try { data = await resp.json(); } catch (_) {}
+          throw new Error(data.error || `Agent run failed (${resp.status})`);
+        }
+
+        // Consume the newline-delimited JSON stream and reflect each REAL
+        // step (cloning, running aider, committing, pushing, opening PR — see
+        // runAgentTask in server.js) into the activity panel as it happens.
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalEvent = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newlineIndex;
+          while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+            if (!line) continue;
+            let evt;
+            try { evt = JSON.parse(line); } catch (_) { continue; }
+            if (evt.type === 'step') appendStep(evt.message);
+            else if (evt.type === 'done' || evt.type === 'error') finalEvent = evt;
+          }
+        }
+
+        if (!finalEvent) throw new Error('Agent run ended without a result');
+        if (finalEvent.type === 'error') {
+          throw Object.assign(new Error(finalEvent.error), { data: finalEvent });
+        }
+
+        const logLines = Array.isArray(finalEvent.log) ? finalEvent.log : [];
+        usage = finalEvent.tokens || null;
+        assistantMessage = finalEvent.changed
+          ? `Implemented the requested change.\n\nPR: ${finalEvent.prUrl || 'n/a'}\n\n${logLines.map((line) => `- ${line}`).join('\n')}`
+          : `No changes were made for this task.\n\n${logLines.map((line) => `- ${line}`).join('\n')}${
+              finalEvent.aiderOutput ? `\n\n**Aider's reply:**\n\n${finalEvent.aiderOutput.trim()}` : ''
+            }`;
+      } else {
+        appendStep('Sending message to AI');
+        const data = await getJSON('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [
+              { role: 'system', content: 'You are a helpful coding assistant. Answer clearly in markdown. If asked for code, provide concise code blocks. When asked about a repository, explain what it does and mention likely entry points.' },
+              ...nextMessages,
+            ],
+            model: selectedModel || defaultModel || undefined,
+            repoUrl: selectedRepo ? selectedRepo.htmlUrl : undefined,
+            baseBranch: selectedRepo ? baseBranch : undefined,
+          }),
+        });
+        appendStep('Response received');
+        assistantMessage = data.message || 'No response returned.';
+        usage = data.usage ? { ...data.usage, contextWindow: data.contextWindow } : null;
+      }
+      setMessages([...nextMessages, { role: 'assistant', content: assistantMessage, usage }]);
+    } catch (e) {
+      appendStep(`Failed: ${e.message}`);
+      setMessages([...nextMessages, { role: 'assistant', content: `Sorry, I could not respond. ${e.message}` }]);
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [appendStep, baseBranch, defaultModel, input, loading, messages, mode, repoFullName, repos, resetActivity, selectedModel]);
+
+  const resetChat = useCallback(() => {
+    setMessages([]);
+    setInput('');
+    setError('');
+    resetActivity();
+    try {
+      window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ messages: [], model: selectedModel, repo: repoFullName, baseBranch, mode }));
+    } catch (_) {}
+  }, [baseBranch, mode, repoFullName, resetActivity, selectedModel]);
+
+  const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+  // Real branches from GitHub; fall back to just the current value while
+  // loading (or if the lookup failed) so the select isn't empty.
+  const branchOptions = branches.length > 0
+    ? branches
+    : [baseBranch, selectedRepo?.defaultBranch].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+
+  return (
+    <div className="chat-layout">
+      <div className="card chat-card">
+        <div className="chat-toolbar">
+          <div className="chat-header">
+            <BranchMark size={18} />
+            <div>
+              <div className="chat-title">One prompt box</div>
+              <div className="chat-subtitle">Ask anything or request a repo change. The answer appears here in markdown.</div>
+            </div>
+          </div>
+          <div className="toolbar-actions">
+            <div className="mode-toggle" role="group" aria-label="Mode">
+              <button
+                type="button"
+                className={`mode-toggle-btn${mode === 'chat' ? ' active' : ''}`}
+                onClick={() => setMode('chat')}
+                title="Clone the repo and talk about it — no writes, no PRs"
+              >
+                Chat
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-btn${mode === 'code' ? ' active' : ''}`}
+                onClick={() => setMode('code')}
+                title="Run aider against the repo and open a PR"
+              >
+                Code
+              </button>
+            </div>
+            <select className="model-select mono" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
+              {models.length === 0 && <option value="">Loading…</option>}
+              {models.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <button className="ghost-btn" onClick={resetChat}>New chat</button>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: '1.4fr 0.6fr', alignItems: 'end' }}>
+            <div>
+              <label style={labelStyle}>Repository</label>
+              {reposLoading ? (
+                <div className="mono" style={{ color: 'var(--text-faint)', fontSize: 13, padding: '8px 0' }}>Loading repos…</div>
+              ) : reposError ? (
+                <div className="mono" style={{ color: 'var(--red)', fontSize: 13, padding: '8px 0' }}>{reposError}</div>
+              ) : (
+                <select value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} style={inputStyle}>
+                  <option value="">No repo selected</option>
+                  {repos.map((r) => <option key={r.fullName} value={r.fullName}>{r.fullName}{r.private ? ' 🔒' : ''}</option>)}
+                </select>
+              )}
+            </div>
+            <div>
+              <label style={labelStyle}>Base branch</label>
+              <select
+                className="mono"
+                style={inputStyle}
+                value={baseBranch}
+                onChange={(e) => setBaseBranch(e.target.value)}
+                disabled={branchesLoading || !repoFullName}
+              >
+                {branchesLoading && <option>Loading branches…</option>}
+                {!branchesLoading && branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
+              {branchesError && (
+                <div className="mono" style={{ color: 'var(--red)', fontSize: 12, marginTop: 4 }}>{branchesError}</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="chat-window">
+          {messages.length === 0 && !loading && (
+            <div className="chat-empty">
+              {mode === 'code'
+                ? <>Code mode: describe a change and the agent will run aider against the selected repo and open a PR.</>
+                : <>Chat mode: ask what this repository does — it's cloned and read, nothing is written or pushed.</>}
+              <br />
+              The reply renders as markdown and code blocks include a copy button.
+            </div>
+          )}
+          {messages.map((message, index) => (
+            <div key={`${message.role}-${index}`} className={`message-row ${message.role}`}>
+              <div className="message-bubble">
+                <div className="message-label">{message.role === 'user' ? 'You' : 'Assistant'}</div>
+                <MessageContent content={message.content} />
+                {message.usage && formatUsage(message.usage) && (
+                  <div className="helper-text mono" style={{ marginTop: 8, opacity: 0.75 }}>{formatUsage(message.usage)}</div>
+                )}
+              </div>
+            </div>
+          ))}
+          {loading && (
+            <div className="message-row assistant">
+              <div className="message-bubble">
+                <div className="message-label">Assistant</div>
+                <div className="helper-text">Thinking…</div>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+
+        <form className="composer" onSubmit={handleSend}>
+          <div className="composer-row">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={mode === 'code' ? 'Describe the change you want made to the selected repo…' : 'Ask a question about the selected repo…'}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSend(event);
+                }
+              }}
+            />
+            <button className="primary" type="submit" disabled={!input.trim() || loading}>Send</button>
+          </div>
+          {error ? <div className="helper-text" style={{ color: 'var(--red)' }}>{error}</div> : (
+            <div className="helper-text">
+              {mode === 'code'
+                ? (repoFullName ? 'Code mode — this will run aider and open a PR on the selected repo.' : 'Select a repo to run code mode.')
+                : 'Chat mode — read-only, no changes are made to the repo.'}
+            </div>
+          )}
+        </form>
+      </div>
+
+      <aside className="chat-sidepanel">
+        <div className="sidepanel-title">Agent flow</div>
+        <div className="sidepanel-copy">Live progress streamed from the server as each stage actually happens — cloning, running aider, committing, pushing, opening the PR.</div>
+        <div className="step-list">
+          {(activitySteps.length === 0 ? ['Ready when you send a prompt'] : activitySteps).map((step, index) => {
+            const isComplete = activitySteps.length > 0 && index < activeStep;
+            const isActive = activitySteps.length > 0 && index === activeStep;
+            const stateClass = isComplete ? 'complete' : isActive ? 'active' : '';
+            return (
+              <div key={`${step}-${index}`} className={`step-item ${stateClass}`.trim()}>
+                <span className="step-dot" />
+                <span>{step}</span>
+              </div>
+            );
+          })}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <span className="mono" style={{
+      display: 'inline-block', width: 13, height: 13, border: '2px solid rgba(12,14,15,0.35)',
+      borderTopColor: '#0c0e0f', borderRadius: '50%', animation: 'spin 0.7s linear infinite'
+    }} />
+  );
+}
+
+function Dashboard({ session, onLogout }) {
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [reposError, setReposError] = useState(null);
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
+  const [repoFullName, setRepoFullName] = useState('');
+  const [baseBranch, setBaseBranch] = useState('main');
+  const [model, setModel] = useState('');
+  const [task, setTask] = useState('');
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [runError, setRunError] = useState(null);
+  const logEndRef = useRef(null);
+
+  useEffect(() => {
+    getJSON('/api/repos')
+      .then((d) => setRepos(d.repos || []))
+      .catch((e) => setReposError(e.message))
+      .finally(() => setReposLoading(false));
+    getJSON('/api/models')
+      .then((d) => { setModels(d.models || []); setDefaultModel(d.default || ''); setModel(d.default || ''); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const repo = repos.find((r) => r.fullName === repoFullName);
+    if (repo) setBaseBranch(repo.defaultBranch || 'main');
+  }, [repoFullName, repos]);
+
+  useEffect(() => {
+    if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  }, [result, running]);
+
+  const canRun = repoFullName && task.trim() && !running;
+  const selectedRepo = repos.find((r) => r.fullName === repoFullName);
+  const branchOptions = [selectedRepo?.defaultBranch, 'main', 'master', 'develop', 'staging'].filter(Boolean);
+
+  const runAgent = useCallback(async () => {
+    if (!canRun) return;
+    setRunning(true);
+    setResult(null);
+    setRunError(null);
+    const repo = repos.find((r) => r.fullName === repoFullName);
+    try {
+      const data = await getJSON('/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoUrl: repo ? repo.htmlUrl : `https://github.com/${repoFullName}`,
+          task: task.trim(),
+          baseBranch,
+          model: model || undefined,
+        }),
+      });
+      setResult(data);
+    } catch (e) {
+      setRunError(e.message);
+      if (e.data) setResult(e.data);
+      if (e.data && e.data.reconnectRequired) {
+        setTimeout(() => window.location.reload(), 1800);
+      }
+    } finally {
+      setRunning(false);
+    }
+  }, [canRun, repoFullName, repos, task, baseBranch, model]);
+
+  return (
+    <div className="dashboard-grid">
+      <div className="card" style={{ padding: 26 }}>
+        <div style={{ display: 'grid', gap: 18 }}>
+          <RepoSelect repos={repos} value={repoFullName} onChange={(e) => setRepoFullName(e.target.value)} loading={reposLoading} error={reposError} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Base branch</label>
+              <select className="mono" style={inputStyle} value={baseBranch} onChange={(e) => setBaseBranch(e.target.value)}>
+                {branchOptions.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Model</label>
+              <select className="mono" style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)}>
+                {models.length === 0 && <option value="">Loading…</option>}
+                {models.map((m) => <option key={m} value={m}>{m}{m === defaultModel ? ' (default)' : ''}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Task</label>
+            <textarea style={{ ...inputStyle, minHeight: 110, resize: 'vertical', lineHeight: 1.5 }} value={task} onChange={(e) => setTask(e.target.value)} placeholder="Add input validation to the signup form and return a 400 with a clear message on invalid email" />
+          </div>
+          <button onClick={runAgent} disabled={!canRun} style={{ justifySelf: 'start', display: 'flex', alignItems: 'center', gap: 8, background: canRun ? 'var(--accent)' : 'var(--panel-raised)', color: canRun ? '#0c0e0f' : 'var(--text-faint)', border: 'none', borderRadius: 8, padding: '11px 22px', fontWeight: 700, fontSize: 14, cursor: canRun ? 'pointer' : 'not-allowed' }}>
+            {running ? (<><Spinner /> Running…</>) : 'Run agent'}
+          </button>
+        </div>
+      </div>
+      <ResultPanel running={running} result={result} runError={runError} logEndRef={logEndRef} />
+    </div>
+  );
+}
+
+function ResultPanel({ running, result, runError, logEndRef }) {
+  const log = (result && result.log) || [];
+  const changed = result && result.changed;
+  const ok = result && result.ok;
+  const hasContent = running || result || runError;
+
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '18px 20px', fontFamily: 'JetBrains Mono, monospace', fontSize: 12.5, position: 'sticky', top: 24, maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
+      <div style={{ color: 'var(--text-faint)', marginBottom: 10, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: -18, background: 'var(--surface)', paddingTop: 2 }}>Run log</div>
+      {!hasContent && <div style={{ color: 'var(--text-faint)', padding: '2px 0' }}>Pick a repo, describe a task, and run — output streams in here.</div>}
+      {log.map((line, i) => <div key={i} style={{ color: 'var(--text-dim)', padding: '2px 0', display: 'flex', gap: 8 }}><span style={{ color: 'var(--text-faint)' }}>›</span>{line}</div>)}
+      {running && <div style={{ color: 'var(--accent)', padding: '2px 0', display: 'flex', gap: 8 }}><span>›</span> working…</div>}
+      {runError && !result && <div style={{ color: 'var(--red)', marginTop: 10 }}>{runError}</div>}
+      {result && result.reconnectRequired && <div style={{ color: 'var(--red)', marginTop: 12 }}>Your GitHub connection expired. Reconnecting…</div>}
+      {result && ok && changed === false && <div style={{ color: 'var(--amber)', marginTop: 12 }}>No changes were needed for this task.</div>}
+      {result && ok && changed && result.prUrl && <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}><span style={{ color: 'var(--accent)' }}>✓ PR opened</span><a href={result.prUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--focus)' }}>{result.prUrl}</a></div>}
+      {result && result.ok === false && !result.reconnectRequired && <div style={{ color: 'var(--red)', marginTop: 12 }}>{result.error}</div>}
+      <div ref={logEndRef} />
+    </div>
+  );
+}
+
+function TerminalPanel() {
+  const [command, setCommand] = useState('bash');
+  const [argsText, setArgsText] = useState('');
+  const [lines, setLines] = useState([]); // {type: 'cmd'|'stdout'|'stderr'|'system', text}
+  const [running, setRunning] = useState(false);
+  const consoleIdRef = useRef(null);
+  const outputRef = useRef(null);
+
+  const [godotProjectPath, setGodotProjectPath] = useState('');
+  const [godotArgsText, setGodotArgsText] = useState('');
+  const [godotStatus, setGodotStatus] = useState({ running: false });
+  const [godotBusy, setGodotBusy] = useState(false);
+
+  useEffect(() => {
+    if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight;
+  }, [lines]);
+
+  const refreshGodotStatus = useCallback(() => {
+    getJSON('/api/godot/status').then(setGodotStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshGodotStatus();
+    const id = window.setInterval(refreshGodotStatus, 4000);
+    return () => window.clearInterval(id);
+  }, [refreshGodotStatus]);
+
+  const appendLine = useCallback((type, text) => {
+    setLines((prev) => [...prev, { type, text }]);
+  }, []);
+
+  // Splits a command line the way a shell would (respecting simple "quoted args"),
+  // good enough for typical invocations without needing a full shell parser.
+  const splitArgs = (text) => {
+    const matches = text.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+    return matches.map((token) => token.replace(/^["']|["']$/g, ''));
+  };
+
+  const runCommand = useCallback(async (event) => {
+    event.preventDefault();
+    if (running) return;
+    const args = splitArgs(argsText);
+    appendLine('cmd', `$ ${command} ${args.join(' ')}`);
+    setRunning(true);
+    try {
+      const resp = await fetch('/api/console/run', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command, args, consoleId: consoleIdRef.current || undefined }),
+      });
+      if (!resp.ok || !resp.body) {
+        const data = await resp.json().catch(() => ({}));
+        appendLine('stderr', data.error || `Request failed (${resp.status})`);
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          if (!line) continue;
+          let evt;
+          try { evt = JSON.parse(line); } catch (_) { continue; }
+          if (evt.type === 'start') consoleIdRef.current = evt.consoleId;
+          else if (evt.type === 'stdout') appendLine('stdout', evt.data.replace(/\n$/, ''));
+          else if (evt.type === 'stderr') appendLine('stderr', evt.data.replace(/\n$/, ''));
+          else if (evt.type === 'exit') appendLine('system', `(exited with code ${evt.code})`);
+          else if (evt.type === 'error') appendLine('stderr', evt.error);
+        }
+      }
+    } catch (e) {
+      appendLine('stderr', e.message);
+    } finally {
+      setRunning(false);
+    }
+  }, [appendLine, argsText, command, running]);
+
+  const startGodotServer = useCallback(async () => {
+    if (!godotProjectPath.trim()) return;
+    setGodotBusy(true);
+    try {
+      const data = await getJSON('/api/godot/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectPath: godotProjectPath.trim(), args: splitArgs(godotArgsText) }),
+      });
+      appendLine('system', `Godot server started (pid ${data.pid})`);
+    } catch (e) {
+      appendLine('stderr', `Godot start failed: ${e.message}`);
+    } finally {
+      setGodotBusy(false);
+      refreshGodotStatus();
+    }
+  }, [appendLine, godotArgsText, godotProjectPath, refreshGodotStatus]);
+
+  const stopGodotServer = useCallback(async () => {
+    setGodotBusy(true);
+    try {
+      await getJSON('/api/godot/stop', { method: 'POST' });
+      appendLine('system', 'Godot server stopping…');
+    } catch (e) {
+      appendLine('stderr', `Godot stop failed: ${e.message}`);
+    } finally {
+      setGodotBusy(false);
+      refreshGodotStatus();
+    }
+  }, [appendLine, refreshGodotStatus]);
+
+  return (
+    <div className="terminal-shell">
+      <div className="godot-card">
+        <div className="godot-card-header">
+          <div>
+            <span className={`status-dot ${godotStatus.running ? 'running' : 'stopped'}`} />
+            <strong>Godot headless server</strong>
+            <span className="helper-text" style={{ marginLeft: 8 }}>
+              {godotStatus.running
+                ? `running · pid ${godotStatus.pid} · up ${Math.round((godotStatus.uptimeMs || 0) / 1000)}s`
+                : 'not running'}
+            </span>
+          </div>
+        </div>
+        {!godotStatus.running ? (
+          <div className="terminal-toolbar">
+            <input
+              className="term-input" style={{ flex: 1, minWidth: 220 }}
+              placeholder="Project path (contains project.godot), e.g. workspaces/my-repo/server"
+              value={godotProjectPath}
+              onChange={(e) => setGodotProjectPath(e.target.value)}
+            />
+            <input
+              className="term-input" style={{ flex: 1, minWidth: 180 }}
+              placeholder="Extra args, e.g. --port 8910"
+              value={godotArgsText}
+              onChange={(e) => setGodotArgsText(e.target.value)}
+            />
+            <button type="button" className="term-btn accent" disabled={godotBusy || !godotProjectPath.trim()} onClick={startGodotServer}>
+              {godotBusy ? 'Starting…' : 'Start server'}
+            </button>
+          </div>
+        ) : (
+          <div className="terminal-toolbar">
+            <span className="helper-text mono">{godotStatus.projectPath} {(godotStatus.args || []).join(' ')}</span>
+            <button type="button" className="term-btn danger" disabled={godotBusy} onClick={stopGodotServer}>
+              {godotBusy ? 'Stopping…' : 'Stop server'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      <form className="terminal-toolbar" onSubmit={runCommand}>
+        <select className="term-select" value={command} onChange={(e) => setCommand(e.target.value)}>
+          {['bash', 'sh', 'python3', 'pip', 'node', 'npm', 'godot'].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input
+          className="term-input" style={{ flex: 1 }}
+          placeholder={command === 'bash' || command === 'sh' ? "-c \"ls -la\"" : 'arguments…'}
+          value={argsText}
+          onChange={(e) => setArgsText(e.target.value)}
+        />
+        <button type="submit" className="term-btn accent" disabled={running}>{running ? 'Running…' : 'Run'}</button>
+        <button type="button" className="term-btn" onClick={() => setLines([])}>Clear</button>
+      </form>
+      <div className="helper-text">
+        Commands persist a working directory across runs (venvs, node_modules survive between calls) via a reused console session.
+        Allowed: bash, sh, python3, pip, node, npm, godot. This runs directly in the app's container — no extra sandboxing.
+      </div>
+
+      <div className="terminal-output" ref={outputRef}>
+        {lines.length === 0 && <span className="terminal-line-system">Nothing run yet. Try: bash -c "ls -la"</span>}
+        {lines.map((l, i) => (
+          <div key={i} className={`terminal-line-${l.type}`}>{l.text}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [models, setModels] = useState([]);
+  const [defaultModel, setDefaultModel] = useState('');
+  const [repos, setRepos] = useState([]);
+  const [reposLoading, setReposLoading] = useState(true);
+  const [reposError, setReposError] = useState(null);
+  const [activeTab, setActiveTab] = useState('chat');
+
+  const loadSession = useCallback(() => {
+    getJSON('/api/session').then(setSession).catch(() => setSession({ loggedIn: false })).finally(() => setLoadingSession(false));
+  }, []);
+
+  useEffect(() => { loadSession(); }, [loadSession]);
+  useEffect(() => {
+    getJSON('/api/models').then((d) => { setModels(d.models || []); setDefaultModel(d.default || ''); }).catch(() => {});
+    getJSON('/api/repos').then((d) => setRepos(d.repos || [])).catch((e) => setReposError(e.message)).finally(() => setReposLoading(false));
+  }, []);
+
+  const onLogout = useCallback(async () => {
+    await fetch('/auth/logout', { method: 'POST' });
+    loadSession();
+  }, [loadSession]);
+
+  if (loadingSession) return null;
+
+  return (
+    <React.Fragment>
+      <TopBar session={session} onLogout={onLogout} />
+      {session && session.loggedIn ? (
+        <React.Fragment>
+          <div className="tab-bar">
+            <button className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>Chat & Agent</button>
+            <button className={`tab-btn ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>Terminal</button>
+          </div>
+          <div className="app-shell" style={{ display: activeTab === 'chat' ? 'flex' : 'none' }}>
+            <ChatPanel models={models} defaultModel={defaultModel} repos={repos} reposLoading={reposLoading} reposError={reposError} />
+          </div>
+          {activeTab === 'terminal' && <TerminalPanel />}
+        </React.Fragment>
+      ) : (
+        <ConnectScreen githubConfigured={true} />
+      )}
+    </React.Fragment>
+  );
+}
+
+const styleTag = document.createElement('style');
+styleTag.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+document.head.appendChild(styleTag);
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
