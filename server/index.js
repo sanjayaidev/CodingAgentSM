@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import agentRoutes from './routes/agent.js';
 import authRoutes from './routes/auth.js';
 import repoRoutes from './routes/repos.js';
+import fileRoutes from './routes/files.js';
 
 dotenv.config();
 
@@ -52,6 +53,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.use('/api/agent', agentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/repos', repoRoutes);
+app.use('/api/files', fileRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
