@@ -1,34 +1,46 @@
-```gitignore
-# Build artifacts
+# Compiled and build artifacts
+*.pyc
+__pycache__/
+*.o
+*.obj
+*.out
 dist/
 build/
-*.js.map
-*.min.js
-*.min.css
+target/
+
 # Dependencies
 node_modules/
-# Environment variables
+venv/
+.venv/
 .env
 .env.local
 .env.*
-# IDE files
+
+# Logs and temp files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
-# Logs and temporary files
-*.log
-*.tmp
-# Coverage reports
+
+# Python specific
+*.pyc
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.coverage
 coverage/
 htmlcov/
-.coverage
-# Python specific
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
+
+# System files
+.DS_Store
+Thumbs.db
+
 # Compressed files
 *.zip
 *.gz
@@ -52,4 +64,3 @@ __pycache__/
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```
