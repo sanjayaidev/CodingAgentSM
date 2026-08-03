@@ -416,29 +416,43 @@
     });
 
     // Authentication check
-    async function checkAuthStatus() {
-      try {
-        const response = await fetch('/api/auth/status');
-        const data = await response.json();
-        
-        if (data.authenticated) {
-          loginPromptEl.classList.add('hidden');
-          userInputEl.disabled = false;
-          submitBtnEl.disabled = false;
-          statusBarEl.textContent = `Logged in as ${data.user.login}`;
-          
-          // Load repositories
-          loadReposList();
-        } else {
-          loginPromptEl.classList.remove('hidden');
-          userInputEl.disabled = true;
-          submitBtnEl.disabled = true;
-          statusBarEl.textContent = 'Not logged in';
-        }
-      } catch (error) {
-        showNotification(`Error checking auth status: ${error.message}`, 'error');
-      }
+  async function checkAuthStatus() {
+  try {
+    const response = await fetch('/api/auth/me');
+
+    if (!response.ok) {
+      // Not logged in (401) or other error
+      loginPromptEl.classList.add('hidden');
+      userInputEl.disabled = true;
+      submitBtnEl.disabled = true;
+      statusBarEl.textContent = 'Not logged in';
+      return;
     }
+
+    const data = await response.json();
+
+    if (data.user) {
+      loginPromptEl.classList.add('hidden');
+      userInputEl.disabled = false;
+      submitBtnEl.disabled = false;
+      statusBarEl.textContent = `Logged in as ${data.user.login}`;
+
+      // Load repositories
+      loadReposList();
+    } else {
+      loginPromptEl.classList.remove('hidden');
+      userInputEl.disabled = true;
+      submitBtnEl.disabled = true;
+      statusBarEl.textContent = 'Not logged in';
+    }
+  } catch (error) {
+    console.error('Auth status check failed:', error);
+    loginPromptEl.classList.remove('hidden');
+    userInputEl.disabled = true;
+    submitBtnEl.disabled = true;
+    statusBarEl.textContent = 'Not logged in';
+  }
+}
 
     // Load repositories list
     async function loadReposList() {
