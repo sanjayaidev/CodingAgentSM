@@ -1,8 +1,11 @@
 // routes/repos.js
 import express from 'express';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { listGithubRepos } from '../lib/github.js';
 import { cloneOrUpdateRepo } from '../lib/git.js';
 
+const execFileAsync = promisify(execFile);
 const router = express.Router();
 
 function requireAuth(req, res, next) {
@@ -46,6 +49,43 @@ router.post('/clone', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[Repos] Clone failed:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Execute a shell command in the context of a repo
+router.post('/exec', requireAuth, async (req, res) => {
+  const { repoPath, command } = req.body;
+
+  if (!repoPath || !command) {
+    return res.status(400).json({ error: 'repoPath and command are required' });
+  }
+
+  // Basic security: prevent some dangerous commands
+  const dangerousPatterns = ['rm -rf /', 'sudo', 'mkfs', 'dd if=', '> /dev/', '| tee /'];
+  for (const pattern of dangerousPatterns) {
+    if (command.includes(pattern)) {
+      return res.status(403).json({ error: 'Command contains dangerous patterns' });
+    }
+  }
+
+  try {
+    const { stdout, stderr } = await execFileAsync(command, {
+      cwd: repoPath,
+      shell: true,
+      maxBuffer: 5 * 1024 * 1024,
+      timeout: 30 * 1000,
+    });
+
+    res.json({
+      output: stdout || stderr || '',
+      success: true,
+    });
+  } catch (error) {
+    res.json({
+      output: error.stdout || '',
+      error: error.stderr || error.message,
+      success: false,
+    });
   }
 });
 
