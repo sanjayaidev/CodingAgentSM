@@ -6,7 +6,7 @@ import { listGithubRepos, createPullRequest } from '../lib/github.js';
 import { cloneOrUpdateRepo, commitAll, pushBranch, getDiff, setupSshRemote, ensureBranch, getCurrentBranch } from '../lib/git.js';
 
 const execFileAsync = promisify(execFile);
-const GIT_PATH = '/usr/bin/git';
+const GIT_PATH = 'git';
 const router = express.Router();
 
 function requireAuth(req, res, next) {
