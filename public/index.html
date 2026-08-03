@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* ── Variables ──────────────────────────────────────────────── */
     :root {
       --bg: #0c0e0f;
       --panel: #131619;
@@ -34,7 +33,6 @@
     }
     ::selection { background: var(--green-dim); }
 
-    /* ── Layout ────────────────────────────────────────────────── */
     .app { display: flex; flex-direction: column; height: 100vh; }
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
@@ -53,138 +51,178 @@
     .topbar-right { display: flex; align-items: center; gap: 14px; }
 
     .main { display: flex; flex: 1; overflow: hidden; }
+
     .sidebar {
-      width: 280px; background: var(--panel); border-right: 1px solid var(--border);
-      padding: 16px; overflow-y: auto; flex-shrink: 0;
+      width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+      display: flex; flex-direction: column; flex-shrink: 0;
     }
-    .content { flex: 1; display: flex; flex-direction: column; background: var(--bg); }
-
-    /* ── Sidebar ────────────────────────────────────────────────── */
-    .sidebar-title {
+    .sidebar-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--text-faint); margin-bottom: 12px;
+      color: var(--text-faint); display: flex; align-items: center; justify-content: space-between;
     }
-    .model-group { margin-bottom: 16px; }
-    .model-group-label {
-      font-size: 12px; font-weight: 600; color: var(--text-dim);
-      margin-bottom: 6px;
+    .file-tree {
+      flex: 1; overflow-y: auto; padding: 8px;
     }
-    .model-option {
-      display: flex; align-items: center; gap: 8px;
-      padding: 6px 10px; border-radius: 6px; cursor: pointer;
+    .file-item {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 8px; border-radius: 6px; cursor: pointer;
       font-size: 13px; color: var(--text-dim); transition: all 0.15s;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .model-option:hover { background: var(--panel-2); color: var(--text); }
-    .model-option.active {
+    .file-item:hover { background: var(--panel-2); color: var(--text); }
+    .file-item.active {
       background: var(--green-dim); color: var(--text);
-      border: 1px solid rgba(126,231,135,0.2);
     }
-    .model-option .speed {
-      font-size: 10px; margin-left: auto;
-      font-family: var(--mono);
+    .file-item .icon { font-size: 14px; width: 16px; text-align: center; }
+    .file-item .name { overflow: hidden; text-overflow: ellipsis; }
+    .folder-toggle {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 16px; height: 16px; cursor: pointer; color: var(--text-faint);
+      transition: transform 0.15s;
     }
-    .model-option .category-badge {
-      font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em;
-      background: var(--panel-2); padding: 1px 8px; border-radius: 10px;
-      color: var(--text-faint);
-    }
+    .folder-toggle.expanded { transform: rotate(90deg); }
+    .folder-children { display: none; }
+    .folder-children.open { display: block; }
 
-    /* ── Chat / Editor Area ───────────────────────────────────── */
-    .chat-area {
-      display: flex; flex-direction: column; flex: 1;
-      padding: 16px; gap: 12px; overflow: hidden;
+    .center-panel {
+      flex: 1; display: flex; flex-direction: column; background: var(--bg);
+      min-width: 0;
     }
-    .messages {
-      flex: 1; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 12px;
+    .editor-container {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
     }
-    .message {
-      max-width: 85%; padding: 12px 14px; border-radius: var(--radius);
-      font-size: 14px; line-height: 1.6; white-space: pre-wrap;
+    .editor-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px; border-bottom: 1px solid var(--border);
+      background: var(--panel); flex-shrink: 0;
     }
-    .message.user {
-      align-self: flex-end; background: var(--green-dim); border: 1px solid rgba(126,231,135,0.15);
+    .editor-path {
+      font-family: var(--mono); font-size: 12px; color: var(--text-dim);
     }
-    .message.assistant {
-      align-self: flex-start; background: var(--panel-2); border: 1px solid var(--border);
+    .editor-actions { display: flex; gap: 8px; }
+    .editor-actions button {
+      padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font-size: 11px;
+      cursor: pointer; transition: all 0.15s;
     }
-    .message .label {
-      font-size: 11px; font-weight: 600; color: var(--text-faint);
-      margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em;
+    .editor-actions button:hover { background: var(--border); }
+    .editor-actions button.save-btn {
+      background: var(--green-dim); border-color: var(--green);
     }
-    .message code {
-      background: rgba(255,255,255,0.06); padding: 0.1em 0.3em; border-radius: 4px;
-      font-family: var(--mono); font-size: 13px;
-    }
-    .message pre {
-      margin: 6px 0 0; background: #08090a; padding: 10px 12px;
-      border-radius: 6px; overflow: auto; border: 1px solid rgba(255,255,255,0.06);
-    }
-    .message pre code {
-      background: none; padding: 0; font-size: 12px;
-    }
+    #monaco-editor { flex: 1; }
 
-    /* ── Composer ────────────────────────────────────────────────── */
-    .composer {
-      display: flex; gap: 10px; padding-top: 12px;
-      border-top: 1px solid var(--border);
+    .terminal-container {
+      height: 200px; border-top: 1px solid var(--border);
+      background: #0a0b0c; display: flex; flex-direction: column;
       flex-shrink: 0;
     }
-    .composer textarea {
-      flex: 1; padding: 10px 12px; border-radius: var(--radius);
-      background: var(--panel-2); border: 1px solid var(--border);
-      color: var(--text); font-family: var(--font); font-size: 14px;
-      resize: none; min-height: 48px; line-height: 1.5;
+    .terminal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 12px; border-bottom: 1px solid var(--border);
+      background: var(--panel); font-size: 11px; color: var(--text-faint);
+      text-transform: uppercase; letter-spacing: 0.06em;
     }
-    .composer textarea:focus { outline: none; border-color: var(--green); }
-    .composer button {
-      padding: 10px 18px; border-radius: var(--radius); border: none;
-      background: var(--green); color: #0c0e0f; font-weight: 700;
-      cursor: pointer; transition: all 0.15s; font-size: 14px;
+    .terminal-body {
+      flex: 1; padding: 8px; overflow-y: auto; font-family: var(--mono);
+      font-size: 12px; color: var(--text-dim);
     }
-    .composer button:hover { filter: brightness(1.1); }
-    .composer button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .terminal-line { white-space: pre-wrap; word-break: break-all; }
+    .terminal-line.prompt { color: var(--green); }
+    .terminal-line.error { color: var(--red); }
+    .terminal-line.info { color: var(--blue); }
+    .terminal-input-row {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      border-top: 1px solid var(--border); background: var(--panel);
+    }
+    .terminal-prompt { color: var(--green); font-family: var(--mono); font-size: 12px; }
+    .terminal-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: var(--text); font-family: var(--mono); font-size: 12px;
+    }
 
-    .composer-row {
-      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    .chat-sidebar {
+      width: 380px; background: var(--panel); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; flex-shrink: 0;
     }
-    .composer-row select {
-      padding: 6px 10px; border-radius: 6px; background: var(--panel-2);
-      border: 1px solid var(--border); color: var(--text);
-      font-family: var(--mono); font-size: 12px;
+    .chat-header {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
     }
-
-    /* ── Model selector in composer ───────────────────────────── */
-    .model-selector {
+    .chat-title {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-faint);
+    }
+    .model-select-inline {
       display: flex; align-items: center; gap: 6px;
       padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
       background: var(--panel-2);
     }
-    .model-selector select {
+    .model-select-inline select {
       background: none; border: none; color: var(--text);
-      font-family: var(--mono); font-size: 12px; padding: 2px 4px;
+      font-family: var(--mono); font-size: 11px; padding: 2px 4px;
       outline: none; cursor: pointer;
     }
-
-    /* ── Status ────────────────────────────────────────────────── */
-    .status-bar {
-      padding: 6px 16px; border-top: 1px solid var(--border);
-      font-size: 12px; color: var(--text-faint);
-      display: flex; justify-content: space-between; flex-shrink: 0;
-      font-family: var(--mono);
+    .chat-messages {
+      flex: 1; overflow-y: auto; padding: 12px; display: flex;
+      flex-direction: column; gap: 10px;
     }
-    .status-dot {
-      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-      margin-right: 6px;
+    .chat-message {
+      max-width: 90%; padding: 10px 12px; border-radius: var(--radius);
+      font-size: 13px; line-height: 1.5; white-space: pre-wrap;
     }
-    .status-dot.green { background: var(--green); }
-    .status-dot.amber { background: var(--amber); }
-    .status-dot.red { background: var(--red); }
+    .chat-message.user {
+      align-self: flex-end; background: var(--green-dim);
+      border: 1px solid rgba(126,231,135,0.15);
+    }
+    .chat-message.assistant {
+      align-self: flex-start; background: var(--panel-2);
+      border: 1px solid var(--border);
+    }
+    .chat-message code {
+      background: rgba(255,255,255,0.06); padding: 0.1em 0.3em;
+      border-radius: 4px; font-family: var(--mono); font-size: 11px;
+    }
+    .chat-message pre {
+      margin: 6px 0 0; background: #08090a; padding: 8px 10px;
+      border-radius: 6px; overflow: auto; border: 1px solid rgba(255,255,255,0.06);
+      font-size: 11px;
+    }
+    .chat-composer {
+      padding: 12px; border-top: 1px solid var(--border);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .chat-composer textarea {
+      width: 100%; padding: 10px 12px; border-radius: var(--radius);
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text); font-family: var(--font); font-size: 13px;
+      resize: none; min-height: 60px; line-height: 1.5;
+    }
+    .chat-composer textarea:focus { outline: none; border-color: var(--green); }
+    .chat-composer button {
+      padding: 10px 18px; border-radius: var(--radius); border: none;
+      background: var(--green); color: #0c0e0f; font-weight: 700;
+      cursor: pointer; transition: all 0.15s; font-size: 13px;
+      align-self: flex-end;
+    }
+    .chat-composer button:hover { filter: brightness(1.1); }
+    .chat-composer button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .diff-preview {
+      margin-top: 8px; padding: 8px; background: #08090a;
+      border-radius: 6px; border: 1px solid var(--border);
+      font-family: var(--mono); font-size: 11px; overflow: auto;
+      max-height: 150px;
+    }
+    .diff-preview .add { color: var(--green); }
+    .diff-preview .del { color: var(--red); }
+    .diff-preview .meta { color: var(--text-faint); }
 
-    /* ── Scrollbar ────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 4px; }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-    /* ── Responsive ────────────────────────────────────────────── */
+    @media (max-width: 1000px) {
+      .chat-sidebar { display: none; }
+    }
     @media (max-width: 700px) {
       .sidebar { display: none; }
       .topbar { flex-wrap: wrap; gap: 8px; }
@@ -196,17 +234,16 @@
 
 <div id="root"></div>
 
-<!-- ── Dependencies ────────────────────────────────────────────── -->
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 
 <script type="text/babel" data-presets="react">
 
 const { useState, useEffect, useRef, useCallback } = React;
 
-// ── API Helpers ──────────────────────────────────────────────────
 async function fetchJSON(url, opts = {}) {
   const res = await fetch(url, { credentials: 'same-origin', ...opts });
   if (!res.ok) {
@@ -216,16 +253,140 @@ async function fetchJSON(url, opts = {}) {
   return res.json();
 }
 
-// ── Main App ──────────────────────────────────────────────────────
+function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
+  const [expanded, setExpanded] = useState(depth < 1);
+
+  const handleClick = () => {
+    if (item.type === 'directory') {
+      setExpanded(!expanded);
+    } else {
+      onSelect(item);
+    }
+  };
+
+  const icon = item.type === 'directory'
+    ? (expanded ? '📂' : '📁')
+    : (item.name.endsWith('.js') || item.name.endsWith('.jsx') ? '📜' :
+       item.name.endsWith('.html') ? '🌐' :
+       item.name.endsWith('.css') ? '🎨' :
+       item.name.endsWith('.md') ? '📝' : '📄');
+
+  if (item.type === 'directory') {
+    return (
+      <div>
+        <div
+          className={`file-item`}
+          onClick={handleClick}
+          style={{ paddingLeft: `${8 + depth * 16}px` }}
+        >
+          <span className="folder-toggle">{expanded ? '▼' : '▶'}</span>
+          <span className="icon">{icon}</span>
+          <span className="name">{item.name}</span>
+        </div>
+        <div className={`folder-children ${expanded ? 'open' : ''}`}>
+          {item.children?.map(child => (
+            <FileTreeItem
+              key={child.path}
+              item={child}
+              depth={depth + 1}
+              onSelect={onSelect}
+              selectedPath={selectedPath}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`file-item ${selectedPath === item.path ? 'active' : ''}`}
+      onClick={handleClick}
+      style={{ paddingLeft: `${8 + depth * 16}px` }}
+    >
+      <span className="icon">{icon}</span>
+      <span className="name">{item.name}</span>
+    </div>
+  );
+}
+
+function Terminal({ repoPath }) {
+  const [history, setHistory] = useState([
+    { type: 'info', text: 'Terminal initialized. Type commands below.' }
+  ]);
+  const [input, setInput] = useState('');
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    if (bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [history]);
+
+  const executeCommand = async (cmd) => {
+    if (!cmd.trim()) return;
+    setHistory(prev => [...prev, { type: 'prompt', text: `$ ${cmd}` }]);
+    setInput('');
+
+    try {
+      const response = await fetch('/api/repos/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repoPath, command: cmd }),
+      });
+      const data = await response.json();
+      if (data.output) {
+        setHistory(prev => [...prev, { type: 'normal', text: data.output }]);
+      }
+      if (data.error) {
+        setHistory(prev => [...prev, { type: 'error', text: data.error }]);
+      }
+    } catch (error) {
+      setHistory(prev => [...prev, { type: 'error', text: error.message }]);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      executeCommand(input);
+    }
+  };
+
+  return (
+    <div className="terminal-container">
+      <div className="terminal-header">
+        <span>⌨️ Terminal</span>
+        <span style={{ fontSize: 10 }}>{repoPath || 'No repo loaded'}</span>
+      </div>
+      <div className="terminal-body" ref={bodyRef}>
+        {history.map((line, i) => (
+          <div key={i} className={`terminal-line ${line.type}`}>{line.text}</div>
+        ))}
+      </div>
+      <div className="terminal-input-row">
+        <span className="terminal-prompt">$</span>
+        <input
+          type="text"
+          className="terminal-input"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Type a command..."
+          disabled={!repoPath}
+        />
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [models, setModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [chatModel, setChatModel] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setLoading] = useState(false);
   const [status, setStatus] = useState({ online: true, modelCount: 0 });
 
-  // Auth + repo state
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [repos, setRepos] = useState([]);
@@ -234,24 +395,29 @@ function App() {
   const [repoLoading, setRepoLoading] = useState(false);
   const [repoError, setRepoError] = useState('');
 
-  const messagesEndRef = useRef(null);
+  const [fileTree, setFileTree] = useState([]);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [editorContent, setEditorContent] = useState('');
+  const [editorDirty, setEditorDirty] = useState(false);
+  const [diffPreview, setDiffPreview] = useState('');
 
-  // Load models on mount
+  const editorRef = useRef(null);
+  const monacoRef = useRef(null);
+  const chatEndRef = useRef(null);
+
   useEffect(() => {
     fetchJSON('/api/agent/models')
       .then(data => {
         setModels(data.models || []);
         setStatus({ online: true, modelCount: data.total || 0 });
         if (data.models?.length) {
-          // Default to a coding model
           const defaultModel = data.models.find(m => m.category === 'coding') || data.models[0];
-          setSelectedModel(defaultModel);
+          setChatModel(defaultModel);
         }
       })
       .catch(() => setStatus({ online: false, modelCount: 0 }));
   }, []);
 
-  // Check login status on mount
   useEffect(() => {
     fetchJSON('/api/auth/me')
       .then(data => setUser(data.user))
@@ -259,7 +425,6 @@ function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  // Once logged in, load the user's repos
   useEffect(() => {
     if (!user) return;
     fetchJSON('/api/repos')
@@ -282,10 +447,12 @@ function App() {
         }),
       });
       setRepoPath(data.path);
-      setMessages(prev => [...prev, {
+      setChatMessages(prev => [...prev, {
         role: 'assistant',
         content: `✅ Loaded \`${selectedRepo.fullName}\` — ready for tasks.`,
       }]);
+      // Load file tree
+      loadFileTree(data.path);
     } catch (err) {
       setRepoError(err.message);
     } finally {
@@ -293,45 +460,112 @@ function App() {
     }
   }, [selectedRepo]);
 
+  const loadFileTree = async (path) => {
+    try {
+      const data = await fetchJSON(`/api/files/tree?repoPath=${encodeURIComponent(path)}`);
+      setFileTree(data.tree || []);
+    } catch (err) {
+      console.error('Failed to load file tree:', err);
+    }
+  };
+
+  const loadFileContent = async (file) => {
+    try {
+      const data = await fetchJSON(`/api/files/content?repoPath=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(file.path)}`);
+      setEditorContent(data.content || '');
+      setSelectedFile(file);
+      setEditorDirty(false);
+
+      if (monacoRef.current) {
+        monacoRef.current.setValue(data.content || '');
+      }
+    } catch (err) {
+      console.error('Failed to load file:', err);
+    }
+  };
+
+  const saveFile = async () => {
+    if (!selectedFile || !repoPath) return;
+    try {
+      await fetchJSON('/api/files/content', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          path: selectedFile.path,
+          content: editorContent,
+        }),
+      });
+      setEditorDirty(false);
+      setChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Saved \`${selectedFile.path}\``,
+      }]);
+    } catch (err) {
+      console.error('Failed to save file:', err);
+    }
+  };
+
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
     setUser(null);
     setRepos([]);
     setSelectedRepo(null);
     setRepoPath('');
+    setFileTree([]);
+    setSelectedFile(null);
   }, []);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  useEffect(() => {
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      monacoRef.current = monaco.editor.create(editorRef.current, {
+        value: editorContent,
+        language: 'javascript',
+        theme: 'vs-dark',
+        automaticLayout: true,
+        minimap: { enabled: true },
+        fontSize: 14,
+        fontFamily: 'JetBrains Mono',
+      });
+
+      monacoRef.current.onDidChangeModelContent(() => {
+        const val = monacoRef.current.getValue();
+        setEditorContent(val);
+        setEditorDirty(true);
+      });
+    });
+  }, []);
 
   const sendMessage = useCallback(async (e) => {
     e.preventDefault();
-    if (!input.trim() || loading || !selectedModel || !repoPath) return;
+    if (!chatInput.trim() || chatLoading || !chatModel || !repoPath) return;
 
-    const userMessage = input.trim();
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setLoading(true);
 
-    // Add placeholder assistant message
-    setMessages(prev => [...prev, { role: 'assistant', content: '...', loading: true }]);
+    setChatMessages(prev => [...prev, { role: 'assistant', content: '...', loading: true }]);
 
     try {
-      // Runs aider against the cloned repo — this can edit and commit files.
       const data = await fetchJSON('/api/agent/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repoPath,
           task: userMessage,
-          modelId: selectedModel.id,
+          modelId: chatModel.id,
         }),
       });
 
-      // Update the last message
-      setMessages(prev => {
+      setDiffPreview(data.diff || '');
+
+      setChatMessages(prev => {
         const last = prev[prev.length - 1];
         if (last && last.loading) {
           const content = data.success
@@ -341,8 +575,11 @@ function App() {
         }
         return prev;
       });
+
+      // Refresh file tree after changes
+      loadFileTree(repoPath);
     } catch (error) {
-      setMessages(prev => {
+      setChatMessages(prev => {
         const last = prev[prev.length - 1];
         if (last && last.loading) {
           return [...prev.slice(0, -1), { role: 'assistant', content: `⚠️ Error: ${error.message}` }];
@@ -352,9 +589,8 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [input, loading, selectedModel, repoPath]);
+  }, [chatInput, chatLoading, chatModel, repoPath]);
 
-  // Group models by category
   const groupedModels = models.reduce((acc, m) => {
     if (!acc[m.category]) acc[m.category] = [];
     acc[m.category].push(m);
@@ -363,7 +599,6 @@ function App() {
 
   return (
     <div className="app">
-      {/* Top Bar */}
       <header className="topbar">
         <div className="topbar-left">
           <div className="logo">⚡ <span>Code</span>Agent</div>
@@ -396,36 +631,33 @@ function App() {
         </div>
       </header>
 
-      {/* Main Area */}
       <div className="main">
-        {/* Sidebar: Models */}
+        {/* Left Sidebar - Files */}
         <aside className="sidebar">
-          <div className="sidebar-title">🤖 Models</div>
-          {Object.entries(groupedModels).map(([category, modelList]) => (
-            <div key={category} className="model-group">
-              <div className="model-group-label">
-                {category === 'coding' ? '💻' : category === 'reasoning' ? '🧠' : category === 'vision' ? '🖼️' : '💬'} {category}
+          <div className="sidebar-header">
+            <span>📁 Files</span>
+          </div>
+          <div className="file-tree">
+            {!repoPath ? (
+              <div style={{ padding: '16px', color: 'var(--text-faint)', fontSize: 12 }}>
+                Load a repo to see files
               </div>
-              {modelList.map(m => (
-                <div
-                  key={m.id}
-                  className={`model-option ${selectedModel?.id === m.id ? 'active' : ''}`}
-                  onClick={() => setSelectedModel(m)}
-                >
-                  <span>{m.label}</span>
-                  <span className="category-badge">{m.speed}</span>
-                  <span className="speed">
-                    {m.speed === 'fast' ? '⚡' : m.speed === 'slow' ? '🐢' : '🔸'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ))}
+            ) : (
+              fileTree.map(item => (
+                <FileTreeItem
+                  key={item.path}
+                  item={item}
+                  onSelect={loadFileContent}
+                  selectedPath={selectedFile?.path}
+                />
+              ))
+            )}
+          </div>
         </aside>
 
-        {/* Chat Area */}
-        <div className="content">
-          {/* Repo picker */}
+        {/* Center Panel - Editor + Terminal */}
+        <div className="center-panel">
+          {/* Repo picker bar */}
           {user && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
               <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>📁 Repo:</span>
@@ -458,94 +690,96 @@ function App() {
             </div>
           )}
 
-          <div className="chat-area">
-            <div className="messages">
-              {messages.length === 0 && (
-                <div style={{ color: 'var(--text-faint)', textAlign: 'center', padding: '40px 0' }}>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
-                  {!user ? (
-                    <div>Connect GitHub, then load a repo to get started</div>
-                  ) : !repoPath ? (
-                    <div>Select and load a repo from the bar above</div>
-                  ) : (
-                    <div>Select a model from the sidebar and start coding</div>
-                  )}
-                  <div style={{ fontSize: 13, marginTop: 6 }}>
-                    {selectedModel ? `Using: ${selectedModel.label}` : 'No model selected'}
-                  </div>
-                </div>
-              )}
-              {messages.map((msg, i) => (
-                <div key={i} className={`message ${msg.role}`}>
-                  <div className="label">{msg.role === 'user' ? 'You' : 'Assistant'}</div>
-                  <div dangerouslySetInnerHTML={{
-                    __html: msg.loading ? '…' : (msg.content ? marked.parse(msg.content) : '')
-                  }} />
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Composer */}
-            <form className="composer" onSubmit={sendMessage}>
-              <div className="composer-row">
-                <textarea
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  placeholder={
-                    !repoPath ? 'Load a repo first…'
-                    : selectedModel ? `Ask ${selectedModel.label} to edit ${selectedRepo?.fullName}…`
-                    : 'Select a model first'
-                  }
-                  disabled={!selectedModel || !repoPath || loading}
-                  rows={2}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage(e);
-                    }
-                  }}
-                />
-                <button type="submit" disabled={!input.trim() || !selectedModel || !repoPath || loading}>
-                  {loading ? '…' : 'Send'}
+          {/* Editor */}
+          <div className="editor-container">
+            <div className="editor-header">
+              <span className="editor-path">
+                {selectedFile ? selectedFile.path : 'No file selected'}
+                {editorDirty && <span style={{ color: 'var(--amber)' }}> ●</span>}
+              </span>
+              <div className="editor-actions">
+                <button onClick={saveFile} disabled={!editorDirty || !selectedFile} className="save-btn">
+                  💾 Save
                 </button>
               </div>
-              <div className="composer-row" style={{ justifyContent: 'space-between' }}>
-                <div className="model-selector">
-                  <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>Model:</span>
-                  <select
-                    value={selectedModel?.id || ''}
-                    onChange={e => {
-                      const m = models.find(mm => mm.id === e.target.value);
-                      if (m) setSelectedModel(m);
-                    }}
-                  >
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.label} ({m.speed})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-                  {selectedModel && `${selectedModel.id} · ${selectedModel.speed}`}
-                </div>
-              </div>
-            </form>
+            </div>
+            <div id="monaco-editor" ref={editorRef}></div>
           </div>
 
-          {/* Status Bar */}
-          <div className="status-bar">
-            <span>⚡ {status.modelCount} models available</span>
-            <span>{new Date().toLocaleTimeString()}</span>
-          </div>
+          {/* Terminal */}
+          <Terminal repoPath={repoPath} />
         </div>
+
+        {/* Right Sidebar - Chat */}
+        <aside className="chat-sidebar">
+          <div className="chat-header">
+            <span className="chat-title">💬 AI Assistant</span>
+            <div className="model-select-inline">
+              <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>Model:</span>
+              <select
+                value={chatModel?.id || ''}
+                onChange={e => {
+                  const m = models.find(mm => mm.id === e.target.value);
+                  if (m) setChatModel(m);
+                }}
+              >
+                {models.map(m => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="chat-messages">
+            {chatMessages.length === 0 && (
+              <div style={{ color: 'var(--text-faint)', textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 24, marginBottom: 8 }}>💬</div>
+                <div style={{ fontSize: 12 }}>Ask AI to generate code or create PR</div>
+              </div>
+            )}
+            {chatMessages.map((msg, i) => (
+              <div key={i} className={`chat-message ${msg.role}`}>
+                <div dangerouslySetInnerHTML={{
+                  __html: msg.loading ? '…' : (msg.content ? marked.parse(msg.content) : '')
+                }} />
+              </div>
+            ))}
+            <div ref={chatEndRef} />
+          </div>
+
+          {diffPreview && (
+            <div style={{ padding: '0 12px' }}>
+              <div className="diff-preview">
+                <div className="meta">📊 Diff Preview</div>
+                <pre>{diffPreview}</pre>
+              </div>
+            </div>
+          )}
+
+          <form className="chat-composer" onSubmit={sendMessage}>
+            <textarea
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              placeholder={!repoPath ? 'Load a repo first…' : 'Describe what you want to build...'}
+              disabled={!chatModel || !repoPath || chatLoading}
+              rows={3}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage(e);
+                }
+              }}
+            />
+            <button type="submit" disabled={!chatInput.trim() || !chatModel || !repoPath || chatLoading}>
+              {chatLoading ? '…' : 'Send'}
+            </button>
+          </form>
+        </aside>
       </div>
     </div>
   );
 }
 
-// ── Mount ──────────────────────────────────────────────────────────
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 </script>
