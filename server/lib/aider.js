@@ -8,7 +8,7 @@ import { getModelById, WORKING_MODELS } from './models.js';
 const execFileAsync = promisify(execFile);
 
 // Alibaba DashScope configuration
-const ALIBABA_BASE = process.env.ALIBABA_BASE_URL || 
+const ALIBABA_BASE = process.env.ALIBABA_BASE_URL ||
   `https://${process.env.ALIBABA_WORKSPACE_ID}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`;
 const ALIBABA_API_KEY = process.env.ALIBABA_API_KEY;
 
