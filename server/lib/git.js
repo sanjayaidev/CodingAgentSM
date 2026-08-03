@@ -6,7 +6,8 @@ import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
-const GIT_PATH = 'git';
+// Use absolute path to git to avoid ENOENT errors when PATH is not set correctly
+const GIT_PATH = process.env.GIT_PATH || '/usr/bin/git';
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.join(process.cwd(), 'workspace');
 
 function safeSegment(str) {
