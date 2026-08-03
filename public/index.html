@@ -254,10 +254,25 @@ async function fetchJSON(url, opts = {}) {
   return res.json();
 }
 
-function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
+function joinPath(dir, name) {
+  return dir ? `${dir}/${name}` : name;
+}
+
+function dirnameOf(relPath) {
+  const idx = relPath.lastIndexOf('/');
+  return idx === -1 ? '' : relPath.slice(0, idx);
+}
+
+function duplicateName(name) {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? `${name.slice(0, dot)} copy${name.slice(dot)}` : `${name} copy`;
+}
+
+function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, activePath }) {
   const [expanded, setExpanded] = useState(depth < 1);
 
   const handleClick = () => {
+    onActivate(item);
     if (item.type === 'directory') {
       setExpanded(!expanded);
     } else {
@@ -276,7 +291,7 @@ function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
     return (
       <div>
         <div
-          className={`file-item`}
+          className={`file-item ${activePath === item.path ? 'active' : ''}`}
           onClick={handleClick}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
         >
@@ -291,7 +306,9 @@ function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
               item={child}
               depth={depth + 1}
               onSelect={onSelect}
+              onActivate={onActivate}
               selectedPath={selectedPath}
+              activePath={activePath}
             />
           ))}
         </div>
@@ -301,7 +318,7 @@ function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
 
   return (
     <div
-      className={`file-item ${selectedPath === item.path ? 'active' : ''}`}
+      className={`file-item ${selectedPath === item.path || activePath === item.path ? 'active' : ''}`}
       onClick={handleClick}
       style={{ paddingLeft: `${8 + depth * 16}px` }}
     >
