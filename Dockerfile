@@ -1,6 +1,9 @@
 # Use Node.js LTS version
 FROM node:20-alpine
 
+# Install git (required for repo operations)
+RUN apk add --no-cache git
+
 # Set working directory
 WORKDIR /app
 
