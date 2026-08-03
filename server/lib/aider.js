@@ -51,6 +51,9 @@ export async function runAider({
     '--no-check-update',
     // Don't touch .gitignore
     '--no-gitignore',
+    // Leave changes in the working tree uncommitted — the UI shows them as
+    // a diff and the user explicitly applies (commits) or discards them.
+    '--no-auto-commits',
     // Model
     '--model', litellmModel,
     // The task
