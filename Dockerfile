@@ -1,4 +1,4 @@
-FROM node:20-slim
+git aFROM node:20-slim
 
 # git: needed to clone/commit user repos
 # python3/pip/venv: needed to install and run the aider CLI
