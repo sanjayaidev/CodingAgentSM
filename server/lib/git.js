@@ -52,3 +52,51 @@ export async function cloneOrUpdateRepo({ token, githubLogin, fullName, cloneUrl
 
   return dest;
 }
+
+/**
+ * Uncommitted changes (working tree + staged) as a unified diff, plus a
+ * short per-file status list for the UI.
+ */
+export async function getDiff(repoPath) {
+  const [{ stdout: diff }, { stdout: statusRaw }] = await Promise.all([
+    execFileAsync('git', ['diff', 'HEAD'], { cwd: repoPath, maxBuffer: 20 * 1024 * 1024 }),
+    execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath }),
+  ]);
+
+  const files = statusRaw.split('\n').filter(Boolean).map(line => ({
+    status: line.slice(0, 2).trim(),
+    path: line.slice(3),
+  }));
+
+  return { diff, files };
+}
+
+/**
+ * Commit whatever is currently sitting in the working tree (i.e. what
+ * aider just wrote) as a single commit — the "apply" step after a human
+ * reviews the diff.
+ */
+export async function commitAll(repoPath, message) {
+  await execFileAsync('git', ['add', '-A'], { cwd: repoPath });
+  const { stdout } = await execFileAsync('git', ['commit', '-m', message || 'Apply aider changes'], { cwd: repoPath });
+  const { stdout: sha } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoPath });
+  return { output: stdout, sha: sha.trim() };
+}
+
+/**
+ * Throw away uncommitted changes — the "discard" step if a human rejects
+ * what aider produced.
+ */
+export async function discardChanges(repoPath) {
+  await execFileAsync('git', ['reset', '--hard', 'HEAD'], { cwd: repoPath });
+  await execFileAsync('git', ['clean', '-fd'], { cwd: repoPath });
+}
+
+/**
+ * Push the current branch (creating it if needed) so a PR can be opened
+ * against it on GitHub.
+ */
+export async function pushBranch(repoPath, branchName) {
+  await execFileAsync('git', ['checkout', '-B', branchName], { cwd: repoPath });
+  await execFileAsync('git', ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
+}
