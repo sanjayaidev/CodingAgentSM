@@ -83,3 +83,23 @@ export async function listGithubRepos(token, { maxPages = 3 } = {}) {
     updatedAt: r.updated_at,
   }));
 }
+
+/**
+ * Open a pull request from `head` into `base` on the given repo.
+ */
+export async function createPullRequest(token, { fullName, title, body, head, base }) {
+  const res = await fetch(`${GITHUB_API}/repos/${fullName}/pulls`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ title, body, head, base }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(`GitHub PR create failed: ${res.status} ${data.message || JSON.stringify(data)}`);
+  }
+  return { number: data.number, url: data.html_url };
+}
