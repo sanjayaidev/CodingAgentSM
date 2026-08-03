@@ -6,6 +6,7 @@ import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
+const GIT_PATH = '/usr/bin/git';
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.join(process.cwd(), 'workspace');
 
 function safeSegment(str) {
@@ -35,20 +36,20 @@ export async function cloneOrUpdateRepo({ token, githubLogin, fullName, cloneUrl
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   if (!fs.existsSync(path.join(dest, '.git'))) {
-    await execFileAsync('git', ['clone', '--depth', '1', authedUrl, dest]);
+    await execFileAsync(GIT_PATH, ['clone', '--depth', '1', authedUrl, dest]);
   } else {
     // Refresh the remote URL (token may have changed) then pull latest.
-    await execFileAsync('git', ['remote', 'set-url', 'origin', authedUrl], { cwd: dest });
-    await execFileAsync('git', ['fetch', 'origin', defaultBranch || 'HEAD'], { cwd: dest });
-    await execFileAsync('git', ['reset', '--hard', `origin/${defaultBranch || 'HEAD'}`], { cwd: dest });
+    await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', authedUrl], { cwd: dest });
+    await execFileAsync(GIT_PATH, ['fetch', 'origin', defaultBranch || 'HEAD'], { cwd: dest });
+    await execFileAsync(GIT_PATH, ['reset', '--hard', `origin/${defaultBranch || 'HEAD'}`], { cwd: dest });
   }
 
   // Strip the token back out of the stored remote so it's not sitting on disk.
-  await execFileAsync('git', ['remote', 'set-url', 'origin', cloneUrl], { cwd: dest });
+  await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', cloneUrl], { cwd: dest });
 
   // aider needs a git identity to make commits.
-  await execFileAsync('git', ['config', 'user.name', authorName || 'Coding Agent'], { cwd: dest });
-  await execFileAsync('git', ['config', 'user.email', authorEmail || 'coding-agent@users.noreply.github.com'], { cwd: dest });
+  await execFileAsync(GIT_PATH, ['config', 'user.name', authorName || 'Coding Agent'], { cwd: dest });
+  await execFileAsync(GIT_PATH, ['config', 'user.email', authorEmail || 'coding-agent@users.noreply.github.com'], { cwd: dest });
 
   return dest;
 }
@@ -61,7 +62,7 @@ export async function setupSshRemote(repoPath, sshUrl) {
   if (!sshUrl) {
     throw new Error('SSH URL is required');
   }
-  await execFileAsync('git', ['remote', 'set-url', 'origin', sshUrl], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', sshUrl], { cwd: repoPath });
   return { success: true, message: 'Remote origin updated to SSH' };
 }
 
@@ -72,11 +73,11 @@ export async function setupSshRemote(repoPath, sshUrl) {
 export async function ensureBranch(repoPath, branchName) {
   try {
     // Try to checkout the branch
-    await execFileAsync('git', ['checkout', branchName], { cwd: repoPath });
+    await execFileAsync(GIT_PATH, ['checkout', branchName], { cwd: repoPath });
     return { success: true, branch: branchName, created: false };
   } catch (error) {
     // Branch doesn't exist, create it
-    await execFileAsync('git', ['checkout', '-b', branchName], { cwd: repoPath });
+    await execFileAsync(GIT_PATH, ['checkout', '-b', branchName], { cwd: repoPath });
     return { success: true, branch: branchName, created: true };
   }
 }
@@ -85,7 +86,7 @@ export async function ensureBranch(repoPath, branchName) {
  * Get the current branch name
  */
 export async function getCurrentBranch(repoPath) {
-  const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
+  const { stdout } = await execFileAsync(GIT_PATH, ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
   return stdout.trim();
 }
 
@@ -95,8 +96,8 @@ export async function getCurrentBranch(repoPath) {
  */
 export async function getDiff(repoPath) {
   const [{ stdout: diff }, { stdout: statusRaw }] = await Promise.all([
-    execFileAsync('git', ['diff', 'HEAD'], { cwd: repoPath, maxBuffer: 20 * 1024 * 1024 }),
-    execFileAsync('git', ['status', '--porcelain'], { cwd: repoPath }),
+    execFileAsync(GIT_PATH, ['diff', 'HEAD'], { cwd: repoPath, maxBuffer: 20 * 1024 * 1024 }),
+    execFileAsync(GIT_PATH, ['status', '--porcelain'], { cwd: repoPath }),
   ]);
 
   const files = statusRaw.split('\n').filter(Boolean).map(line => ({
@@ -113,9 +114,9 @@ export async function getDiff(repoPath) {
  * reviews the diff.
  */
 export async function commitAll(repoPath, message) {
-  await execFileAsync('git', ['add', '-A'], { cwd: repoPath });
-  const { stdout } = await execFileAsync('git', ['commit', '-m', message || 'Apply aider changes'], { cwd: repoPath });
-  const { stdout: sha } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['add', '-A'], { cwd: repoPath });
+  const { stdout } = await execFileAsync(GIT_PATH, ['commit', '-m', message || 'Apply aider changes'], { cwd: repoPath });
+  const { stdout: sha } = await execFileAsync(GIT_PATH, ['rev-parse', 'HEAD'], { cwd: repoPath });
   return { output: stdout, sha: sha.trim() };
 }
 
@@ -124,8 +125,8 @@ export async function commitAll(repoPath, message) {
  * what aider produced.
  */
 export async function discardChanges(repoPath) {
-  await execFileAsync('git', ['reset', '--hard', 'HEAD'], { cwd: repoPath });
-  await execFileAsync('git', ['clean', '-fd'], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['reset', '--hard', 'HEAD'], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['clean', '-fd'], { cwd: repoPath });
 }
 
 /**
@@ -133,6 +134,6 @@ export async function discardChanges(repoPath) {
  * against it on GitHub.
  */
 export async function pushBranch(repoPath, branchName) {
-  await execFileAsync('git', ['checkout', '-B', branchName], { cwd: repoPath });
-  await execFileAsync('git', ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['checkout', '-B', branchName], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
 }

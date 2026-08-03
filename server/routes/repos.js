@@ -6,6 +6,7 @@ import { listGithubRepos, createPullRequest } from '../lib/github.js';
 import { cloneOrUpdateRepo, commitAll, pushBranch, getDiff, setupSshRemote, ensureBranch, getCurrentBranch } from '../lib/git.js';
 
 const execFileAsync = promisify(execFile);
+const GIT_PATH = '/usr/bin/git';
 const router = express.Router();
 
 function requireAuth(req, res, next) {
@@ -116,6 +117,7 @@ router.post('/exec', requireAuth, async (req, res) => {
       shell: true,
       maxBuffer: 5 * 1024 * 1024,
       timeout: 30 * 1000,
+      env: { ...process.env, GIT_EXEC_PATH: '/usr/lib/git-core' },
     });
 
     res.json({
