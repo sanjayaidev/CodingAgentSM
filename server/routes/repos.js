@@ -2,8 +2,8 @@
 import express from 'express';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { listGithubRepos } from '../lib/github.js';
-import { cloneOrUpdateRepo } from '../lib/git.js';
+import { listGithubRepos, createPullRequest } from '../lib/github.js';
+import { cloneOrUpdateRepo, commitAll, pushBranch, getDiff } from '../lib/git.js';
 
 const execFileAsync = promisify(execFile);
 const router = express.Router();
@@ -85,6 +85,94 @@ router.post('/exec', requireAuth, async (req, res) => {
       output: error.stdout || '',
       error: error.stderr || error.message,
       success: false,
+    });
+  }
+});
+
+// Commit changes and push to a branch, optionally creating a PR
+router.post('/push', requireAuth, async (req, res) => {
+  const { repoPath, commitMessage, branchName, createPR, prTitle, prBody, baseBranch } = req.body;
+
+  if (!repoPath) {
+    return res.status(400).json({ error: 'repoPath is required' });
+  }
+  if (!commitMessage) {
+    return res.status(400).json({ error: 'commitMessage is required' });
+  }
+  if (!branchName) {
+    return res.status(400).json({ error: 'branchName is required' });
+  }
+
+  try {
+    // Step 1: Commit all changes
+    const commitResult = await commitAll(repoPath, commitMessage);
+    
+    // Step 2: Push the branch
+    await pushBranch(repoPath, branchName);
+
+    let prInfo = null;
+    
+    // Step 3: Optionally create a pull request
+    if (createPR) {
+      if (!prTitle) {
+        return res.status(400).json({ error: 'prTitle is required when createPR is true' });
+      }
+      if (!baseBranch) {
+        return res.status(400).json({ error: 'baseBranch is required when createPR is true' });
+      }
+
+      // Get repo full name from path
+      const pathParts = repoPath.split('/');
+      const owner = pathParts[pathParts.length - 2];
+      const repo = pathParts[pathParts.length - 1];
+      const fullName = `${owner}/${repo}`;
+
+      const prResult = await createPullRequest(req.session.githubToken, {
+        fullName,
+        title: prTitle,
+        body: prBody || `Changes from branch: ${branchName}`,
+        head: branchName,
+        base: baseBranch,
+      });
+
+      prInfo = prResult;
+    }
+
+    res.json({
+      success: true,
+      commitSha: commitResult.sha,
+      branchName,
+      pr: prInfo,
+    });
+  } catch (error) {
+    console.error('[Repos] Push failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Preview changes before committing (shows diff)
+router.post('/preview', requireAuth, async (req, res) => {
+  const { repoPath } = req.body;
+
+  if (!repoPath) {
+    return res.status(400).json({ error: 'repoPath is required' });
+  }
+
+  try {
+    const diff = await getDiff(repoPath);
+    res.json({
+      success: true,
+      diff: diff.diff,
+      changedFiles: diff.files,
+    });
+  } catch (error) {
+    console.error('[Repos] Preview failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
     });
   }
 });

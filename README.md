@@ -90,3 +90,4 @@ your GitHub OAuth App's callback URL to match.
 - A streaming endpoint (`POST /api/agent/run/stream`, Server-Sent Events)
   already exists but isn't wired into the frontend yet — the UI currently
   waits for the full aider run before showing output.
+- **Push & PR support**: After aider makes changes, use the new `/api/repos/push` endpoint to commit and push directly to GitHub (your OAuth token is used for authentication). You can optionally create a pull request in the same call by setting `createPR: true` and providing `prTitle`, `prBody`, and `baseBranch`. Use `/api/repos/preview` to review changes before committing.
