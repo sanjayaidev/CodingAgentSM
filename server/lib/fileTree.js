@@ -11,10 +11,21 @@ const IGNORE_PATTERNS = [
   '*.pyc',
 ];
 
+// Aider leaves working files behind in the repo it operates on (repo-map
+// cache, chat/input history if not redirected, etc). These are agent
+// scratch files, not part of the user's project, so hide them from the
+// tree and (see git.js) keep them out of commits.
+const AIDER_ARTIFACT_PATTERNS = [
+  '.aider*',
+];
+
 function shouldIgnore(name) {
-  return IGNORE_PATTERNS.some(pattern => {
+  return [...IGNORE_PATTERNS, ...AIDER_ARTIFACT_PATTERNS].some(pattern => {
     if (pattern.startsWith('*')) {
       return name.endsWith(pattern.slice(1));
+    }
+    if (pattern.endsWith('*')) {
+      return name.startsWith(pattern.slice(0, -1));
     }
     return name === pattern;
   });

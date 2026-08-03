@@ -61,6 +61,12 @@
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
       color: var(--text-faint); display: flex; align-items: center; justify-content: space-between;
     }
+    .sidebar-header-actions { display: flex; align-items: center; gap: 4px; }
+    .sidebar-header-btn {
+      background: none; border: none; cursor: pointer; font-size: 13px;
+      color: var(--text-faint); padding: 2px 5px; border-radius: 4px; line-height: 1;
+    }
+    .sidebar-header-btn:hover { background: var(--panel-2); color: var(--text); }
     .file-tree {
       flex: 1; overflow-y: auto; padding: 8px;
     }
@@ -347,7 +353,7 @@ function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repoPath,
-        path: basePath + '/' + name,
+        path: joinPath(basePath, name.trim()),
       }),
     }).then(() => {
       onRefresh();
@@ -369,7 +375,7 @@ function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repoPath,
-          path: folderBasePath + '/' + newFileName,
+          path: joinPath(folderBasePath, newFileName.trim()),
           content: '',
         }),
       });
@@ -498,30 +504,30 @@ function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
       >
         {!showRenameInput ? (
           <>
-            {item.type === 'directory' && (
+            <div className="context-menu-item" onClick={() => handleCreateFile(item.type === 'directory' ? item.path : dirnameOf(item.path))}>
+              📄 New File
+            </div>
+            <div className="context-menu-item" onClick={() => handleCreateFolder(item.type === 'directory' ? item.path : dirnameOf(item.path))}>
+              📁 New Folder
+            </div>
+            {item.path !== '' && (
               <>
-                <div className="context-menu-item" onClick={() => handleCreateFile(item.path)}>
-                  📄 New File
+                <div className="context-menu-divider" />
+                <div className="context-menu-item" onClick={handleCopy}>
+                  📋 Copy
                 </div>
-                <div className="context-menu-item" onClick={() => handleCreateFolder(item.path)}>
-                  📁 New Folder
+                <div className="context-menu-item" onClick={handleMove}>
+                  ➡️ Move
+                </div>
+                <div className="context-menu-item" onClick={handleRenameStart}>
+                  ✏️ Rename
                 </div>
                 <div className="context-menu-divider" />
+                <div className="context-menu-item danger" onClick={handleDelete}>
+                  🗑️ Delete
+                </div>
               </>
             )}
-            <div className="context-menu-item" onClick={handleCopy}>
-              📋 Copy
-            </div>
-            <div className="context-menu-item" onClick={handleMove}>
-              ➡️ Move
-            </div>
-            <div className="context-menu-item" onClick={handleRenameStart}>
-              ✏️ Rename
-            </div>
-            <div className="context-menu-divider" />
-            <div className="context-menu-item danger" onClick={handleDelete}>
-              🗑️ Delete
-            </div>
           </>
         ) : (
           <div className="context-menu-input-row">
@@ -950,8 +956,30 @@ function App() {
         <aside className="sidebar">
           <div className="sidebar-header">
             <span>📁 Files</span>
+            {repoPath && (
+              <div className="sidebar-header-actions">
+                <button
+                  className="sidebar-header-btn"
+                  title="New File"
+                  onClick={(e) => handleFileContextMenu(e.clientX, e.clientY, { path: '', type: 'directory', name: '' })}
+                >📄</button>
+                <button
+                  className="sidebar-header-btn"
+                  title="New Folder"
+                  onClick={(e) => handleFileContextMenu(e.clientX, e.clientY, { path: '', type: 'directory', name: '' })}
+                >📁</button>
+              </div>
+            )}
           </div>
-          <div className="file-tree">
+          <div
+            className="file-tree"
+            onContextMenu={(e) => {
+              if (e.target === e.currentTarget && repoPath) {
+                e.preventDefault();
+                handleFileContextMenu(e.clientX, e.clientY, { path: '', type: 'directory', name: '' });
+              }
+            }}
+          >
             {!repoPath ? (
               <div style={{ padding: '16px', color: 'var(--text-faint)', fontSize: 12 }}>
                 Load a repo to see files

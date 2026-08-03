@@ -15,6 +15,50 @@ function safeSegment(str) {
   return String(str).replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
+// aider is invoked with --no-gitignore (see lib/aider.js) so it never
+// edits the user's .gitignore, but that also means it won't self-register
+// its own scratch files there. Left alone, its repo-map cache
+// (.aider.tags.cache.v3/) and any history files that land in the repo
+// root get swept up by `git add -A` and pushed to the user's repo as
+// junk. Keep them out at the git level instead, independent of the tree.
+const AIDER_ARTIFACT_GLOB = '.aider*';
+
+/**
+ * Make sure aider's own working files are excluded locally (never shown
+ * as untracked/added, and never written into the user's committed
+ * .gitignore) and untrack any that a previous version of this tool may
+ * already have committed.
+ */
+async function excludeAiderArtifacts(repoPath) {
+  const excludePath = path.join(repoPath, '.git', 'info', 'exclude');
+  try {
+    const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf-8') : '';
+    if (!existing.split('\n').includes(AIDER_ARTIFACT_GLOB)) {
+      fs.appendFileSync(excludePath, `${existing.endsWith('\n') || !existing ? '' : '\n'}${AIDER_ARTIFACT_GLOB}\n`);
+    }
+  } catch {
+    // Non-fatal — worst case aider artifacts show up as untracked files
+    // for a human to notice before pushing.
+  }
+
+  // Untrack any aider artifacts a previous run already committed, and
+  // delete them from the working tree so they don't linger locally.
+  try {
+    await execFileAsync(
+      GIT_PATH,
+      ['rm', '-r', '--cached', '--ignore-unmatch', '-q', '--', AIDER_ARTIFACT_GLOB],
+      { cwd: repoPath }
+    );
+  } catch {
+    // Nothing tracked matched — fine.
+  }
+  for (const entry of fs.readdirSync(repoPath, { withFileTypes: true })) {
+    if (entry.name.startsWith('.aider')) {
+      fs.rmSync(path.join(repoPath, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
 /**
  * Returns the local filesystem path a repo would live at for a given user,
  * without touching disk.
@@ -51,6 +95,10 @@ export async function cloneOrUpdateRepo({ token, githubLogin, fullName, cloneUrl
   // aider needs a git identity to make commits.
   await execFileAsync(GIT_PATH, ['config', 'user.name', authorName || 'Coding Agent'], { cwd: dest });
   await execFileAsync(GIT_PATH, ['config', 'user.email', authorEmail || 'coding-agent@users.noreply.github.com'], { cwd: dest });
+
+  // Keep aider's own scratch/cache files from ever being tracked, and
+  // sweep out any that a previous run already committed.
+  await excludeAiderArtifacts(dest);
 
   return dest;
 }
@@ -115,6 +163,10 @@ export async function getDiff(repoPath) {
  * reviews the diff.
  */
 export async function commitAll(repoPath, message) {
+  // Belt-and-suspenders: aider may have just written a fresh
+  // .aider.tags.cache.v3/ into the working tree, so strip it again right
+  // before staging rather than relying solely on the exclude file.
+  await excludeAiderArtifacts(repoPath);
   await execFileAsync(GIT_PATH, ['add', '-A'], { cwd: repoPath });
   const { stdout } = await execFileAsync(GIT_PATH, ['commit', '-m', message || 'Apply aider changes'], { cwd: repoPath });
   const { stdout: sha } = await execFileAsync(GIT_PATH, ['rev-parse', 'HEAD'], { cwd: repoPath });
