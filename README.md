@@ -1,261 +1,92 @@
-# Coding Agent (Aider + NIM)
+# Coding Agent
 
-A self-contained app — API + UI in one Railway service — that:
-1. Lets you connect a GitHub account (OAuth, `repo` scope) from a built-in web UI
-2. Lists your repos so you can pick one and describe a task
-3. Clones the repo and runs [aider](https://aider.chat) against an NVIDIA NIM model to make the change
-4. Pushes a new branch and opens a pull request, with the result shown live in the UI
+A web UI that lets you pick from Alibaba's Qwen/DeepSeek/GLM models on DashScope,
+load a GitHub repo, and hand it tasks that [aider](https://aider.chat) executes
+directly against the repo (editing files and committing changes).
 
-`/agent/run` also still works as a plain HTTP endpoint for server-to-server callers (see "Calling it directly" below).
+## How it fits together
 
-## Setup
+- `server/index.js` — Express app, sessions, static frontend
+- `server/routes/auth.js` — GitHub OAuth login/callback/logout
+- `server/routes/repos.js` — list the user's GitHub repos, clone/update one locally
+- `server/routes/agent.js` — list models, run aider against a cloned repo
+- `server/lib/github.js` — GitHub REST API calls
+- `server/lib/git.js` — shells out to `git` to clone/update repos
+- `server/lib/aider.js` — shells out to the `aider` CLI, pointed at Alibaba's OpenAI-compatible endpoint
+- `public/index.html` — single-file React (via CDN + Babel) frontend
 
-```bash
-cp .env.example .env
-# fill in NIM_API_KEY, GITHUB_CLIENT_ID/SECRET (see below), optionally AGENT_API_KEY / GITHUB_TOKEN
+## 1. Register a GitHub OAuth App
+
+Go to https://github.com/settings/developers → **New OAuth App**.
+
+- **Homepage URL**: your app's URL (e.g. `https://your-app.railway.app`, or `http://localhost:3000` for local dev)
+- **Authorization callback URL**: `<APP_BASE_URL>/api/auth/github/callback`, e.g.
+  `http://localhost:3000/api/auth/github/callback`
+
+Copy the generated **Client ID** and **Client Secret** into `.env`.
+
+## 2. Get an Alibaba DashScope key
+
+From Alibaba Cloud Model Studio, grab your workspace ID and API key and put
+them in `.env` as `ALIBABA_WORKSPACE_ID` / `ALIBABA_API_KEY`.
+
+> Double check the model IDs in `server/lib/models.js` against what's actually
+> live in your DashScope console — a few of the dated ones look speculative
+> and will simply fail at request time if they don't exist.
+
+## 3. Configure `.env`
+
+Fill in every value in `.env` (copy it, don't commit the real one — it's
+already gitignored). At minimum you need:
+
+```
+ALIBABA_WORKSPACE_ID=...
+ALIBABA_API_KEY=...
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+APP_BASE_URL=http://localhost:3000
+SESSION_SECRET=<random string>
 ```
 
-### GitHub OAuth App (for the "Connect GitHub" button)
-1. Go to https://github.com/settings/developers → **New OAuth App**.
-2. Homepage URL: your Railway URL (or `http://localhost:3000` for local dev).
-3. Authorization callback URL: `<your-app-url>/auth/github/callback` — e.g.
-   `https://your-app.up.railway.app/auth/github/callback`.
-4. Copy the generated Client ID / Client Secret into `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`.
-5. Set `APP_BASE_URL` to that same base URL in production (Railway) so the callback matches exactly;
-   leave it blank locally and it's inferred from the request.
-
-Sessions (GitHub token per logged-in user) are stored **in memory** — fine for a personal, single-replica
-app, but they're lost on redeploy/restart. Just click "Connect GitHub" again.
-
-### GitHub token permissions
-The OAuth flow requests `repo` scope, which covers clone/push + pull requests on both public and
-private repos. If you're instead using a manually-issued token (`GITHUB_TOKEN` env var, server-to-server
-calls only): classic PAT needs `repo` scope; fine-grained PAT needs Contents (read/write) + Pull requests
-(read/write) on the target repo(s).
-
-### NIM model name
-`NIM_MODEL` must match NVIDIA's exact model identifier as listed in the NIM catalog
-(e.g. `qwen/qwen2.5-coder-32b-instruct` — confirm against your NIM account's available models,
-since exact strings vary by deployment). The UI's model field is a free-text input with a few
-suggestions (`CODING_MODELS` in `server.js`) — edit that list once you've confirmed what's actually
-in your NIM catalog.
-
-## Run locally
+Generate a session secret with:
 
 ```bash
-npm install
-# aider must be installed locally too:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+## 4. Run locally
+
+Aider is a Python CLI, so it needs to be installed separately from the Node app:
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install aider-chat
-node server.js
+
+npm install
+npm start
 ```
 
-Open `http://localhost:3000` — click **Connect GitHub**, pick a repo, describe a task, and run.
+Visit `http://localhost:3000`, click **Connect GitHub**, pick a repo, click
+**Load repo**, choose a model, and type a task.
 
-## Using the UI
+## 5. Deploy to Railway
 
-1. Deploy (see below), open the app's URL.
-2. Click **Connect GitHub** → authorize the OAuth App (`repo` scope).
-3. Pick a repo from the dropdown (base branch pre-fills from the repo's default branch).
-4. Optionally override the model.
-5. Describe the change in the **Task** box and click **Run agent**.
-6. Watch the log stream in; on success you get a link straight to the opened PR.
+This repo includes a `Dockerfile` (installs Node, Python, git, and aider in
+one image) and `railway.json` is set to build from it. Push to Railway, set
+the same env vars from `.env` in the Railway dashboard (with `APP_BASE_URL`
+pointing at your real Railway domain and `NODE_ENV=production`), and update
+your GitHub OAuth App's callback URL to match.
 
-## Calling it directly (server-to-server)
+## Notes / limitations
 
-`/agent/run` still accepts a plain API-key-authenticated call, e.g. from another backend of yours —
-in that mode you must supply `githubToken` yourself (the UI's browser session isn't involved):
-
-```bash
-curl -X POST http://localhost:3000/agent/run \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $AGENT_API_KEY" \
-  -d '{
-    "repoUrl": "https://github.com/your-org/your-repo",
-    "baseBranch": "main",
-    "githubToken": "ghp_...",
-    "task": "Add input validation to the signup form and return a 400 with a clear message on invalid email"
-  }'
-```
-
-Response (on success):
-```json
-{
-  "ok": true,
-  "changed": true,
-  "prUrl": "https://github.com/your-org/your-repo/pull/42",
-  "prNumber": 42,
-  "branch": "aider/abc123",
-  "aiderOutput": "...",
-  "log": ["..."]
-}
-```
-
-If aider decides no change is needed, `changed` will be `false` and no PR is opened.
-
-Every run also returns a `tokens` field: `{ approxContextTokens, aiderTokenSummary }`.
-`approxContextTokens` is a rough (chars/4) estimate of the conversation context folded into
-the aider task (see `context` below) — aider manages its own LLM calls internally, so this
-process doesn't get an exact count back from it the way it does for `/api/chat`.
-`aiderTokenSummary` is only populated if aider's own console output included a
-"Tokens: X sent, Y received" line.
-
-### Persisting chat context into the agent run
-
-Pass the prior conversation as `context` (an array of `{role, content}` messages, same shape
-as `/api/chat`) so a fresh aider clone can resolve references like "the text you gave me
-earlier":
-
-```json
-{
-  "repoUrl": "...",
-  "task": "Use the text I gave you above as the new footer copy",
-  "context": [
-    { "role": "user", "content": "..." },
-    { "role": "assistant", "content": "..." }
-  ]
-}
-```
-
-## API reference (for external callers)
-
-Every endpoint below accepts either a browser session cookie (from "Connect GitHub") or an
-`x-api-key: $AGENT_API_KEY` header — pass whichever you have. CORS is enabled, so these can be
-called directly from another service/browser origin.
-
-| Method & path              | Purpose                                                                 |
-|-----------------------------|--------------------------------------------------------------------------|
-| `POST /agent/run`           | Buffered agent run — clone, aider, commit, push, open PR. Returns once done. |
-| `POST /agent/run/stream`    | Same as above, but streams newline-delimited JSON progress events (`{"type":"step",...}`, then one `{"type":"done"|"error",...}`). This is what the built-in UI's activity panel now consumes for real progress. |
-| `POST /api/chat`            | Plain chat completion via NIM. Returns `{ message, usage, contextWindow, contextUsedFraction }` — `usage` is the exact `prompt_tokens`/`completion_tokens`/`total_tokens` from NIM for that call, since the full message history is re-sent every turn this **is** your current context-window usage. |
-| `GET /api/models`           | List of allowed NIM models + the default. |
-| `POST /api/console/run`     | Run `python3`/`python`/`pip`/`pip3`/`node`/`npm`/`bash`/`sh`/`godot` with args, streamed as NDJSON (`stdout`/`stderr`/`exit` events). See "Execution console" below. |
-| `DELETE /api/console/:id`   | Delete a console workspace. |
-| `POST /api/godot/start`     | Start a persistent headless Godot dedicated server (`{ projectPath, args }`). One at a time. |
-| `POST /api/godot/stop`      | Stop the running Godot server. |
-| `GET /api/godot/status`     | `{ running, pid, projectPath, args, uptimeMs }`. |
-| `GET /api/godot/logs`       | Last 500 lines of the Godot server's stdout/stderr. |
-
-`NIM_CONTEXT_WINDOW` (env var, default `32768`) controls the context-window size used to
-compute `contextUsedFraction` — set it to match whatever model you're actually using so the
-percentage is meaningful.
-
-## Execution console (Python / bash / npm)
-
-`POST /api/console/run` runs one allowlisted command (`python3`, `python`, `pip`, `pip3`,
-`node`, `npm`, `bash`, `sh`) with an argv array — never a shell string, so there's no
-shell-injection surface through `args`:
-
-```bash
-curl -N -X POST http://localhost:3000/api/console/run \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $AGENT_API_KEY" \
-  -d '{"command": "python3", "args": ["-c", "print(1+1)"]}'
-```
-
-Pass back the `consoleId` from the `start` event on later calls to reuse the same working
-directory (e.g. keep a venv or `node_modules` around between calls). Idle console workspaces
-are swept after 2 hours; `DELETE /api/console/:id` removes one immediately.
-
-**This is a first version, not a sandbox.** Commands run directly inside this app's own
-container with whatever filesystem/network access that container already has — there's no
-per-run isolation (no separate container, user, or network policy per command). Anyone with a
-valid `x-api-key` or session can run arbitrary code inside it. That's fine for a personal
-deployment behind a private `AGENT_API_KEY`; before exposing this more broadly, put real
-sandboxing in front of it (e.g. a per-run container/VM with resource and network limits).
-
-## Terminal UI + Godot headless server
-
-There's now a **Terminal** tab in the UI (next to Chat & Agent) backed by `/api/console/run`:
-pick `bash`/`sh`/`python3`/`pip`/`node`/`npm`/`godot`, type args, run — output streams in live.
-Runs reuse a working directory across calls within the same tab session (a venv or
-`node_modules` you set up sticks around), same allowlist/security model as the API (see above).
-
-**Godot** is installed in the Docker image (official Linux binary, `--headless`-capable — see
-`Dockerfile`, pinned via `ARG GODOT_VERSION`, currently `4.7`). Two ways to use it:
-
-1. **One-off commands** (exports, running a script, tests) — just use the Terminal tab or
-   `POST /api/console/run` with `command: "godot"`, e.g. `args: ["--headless", "--path", "workspaces/my-repo", "--script", "res://build.gd"]`.
-2. **A persistent dedicated server** — the console endpoint above is request-scoped (its process
-   stops when the stream ends), which doesn't suit a long-running game server. For that, use the
-   Godot server card at the top of the Terminal tab, or the API directly:
-
-   ```bash
-   curl -X POST http://localhost:3000/api/godot/start \
-     -H "Content-Type: application/json" -H "x-api-key: $AGENT_API_KEY" \
-     -d '{"projectPath": "workspaces/my-repo/server", "args": ["--port", "8910"]}'
-
-   curl http://localhost:3000/api/godot/status -H "x-api-key: $AGENT_API_KEY"
-   curl http://localhost:3000/api/godot/logs   -H "x-api-key: $AGENT_API_KEY"
-   curl -X POST http://localhost:3000/api/godot/stop -H "x-api-key: $AGENT_API_KEY"
-   ```
-
-   This manages one Godot process at a time (start/stop/status/logs, last 500 log lines kept in
-   memory). `projectPath` needs a `project.godot` at that path, reachable inside the container —
-   e.g. clone/checkout a repo into `workspaces/` first (via the agent, or `git` in the Terminal
-   tab), then point `projectPath` at it.
-
-### Does Railway support running this alongside the existing server?
-
-Yes. Two ways to do it, in order of what I'd actually recommend:
-
-- **Same service (what's wired up above)**: the Godot process runs inside this app's own
-  container, managed by `/api/godot/*`. Railway now supports **TCP Proxy and an HTTP domain on
-  the same service simultaneously** (this used to be an either/or limitation — it isn't anymore).
-  So you'd keep the Express app on its normal Railway-provided HTTP domain, and separately add a
-  **TCP Proxy** in that service's Settings pointed at whatever port you pass Godot via
-  `--port` in `args`. Railway hands you a `host:port` for the TCP proxy — that's what game
-  clients connect to.
-- **Separate service** (cleaner for a real production dedicated server): create a second Railway
-  service in the same project from a small Godot-only Dockerfile, and use Railway's private
-  networking or a TCP Proxy for it. This scales/restarts independently of the coding-agent API
-  and doesn't share failure domains with it — worth doing once the Godot server is more than a
-  quick test.
-
-Either way, keep in mind Railway's proxy currently multiplexes **one port per TCP Proxy** — if
-your Godot server needs multiple ports (e.g. a gameplay port + a separate metrics/RCON port),
-each one needs its own TCP Proxy entry (or route the extra one over Railway's private network
-instead of exposing it publicly).
-
-## Deploy on Railway
-
-1. Push this folder to a GitHub repo (or connect Railway directly to your repo).
-2. In Railway: New Project → Deploy from GitHub repo → select this repo.
-3. Railway will detect `railway.json` and build via the `Dockerfile`.
-4. Set environment variables in Railway's dashboard (same as `.env.example`):
-   - `NIM_API_KEY` (+ `NIM_API_BASE` / `NIM_MODEL` if you're not using the defaults)
-   - `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` (OAuth App, see above)
-   - `APP_BASE_URL` — set this to your Railway URL once Railway assigns one, e.g.
-     `https://your-app.up.railway.app`, and update the OAuth App's callback URL to match
-   - `AGENT_API_KEY` (optional — only needed if you also call `/agent/run` server-to-server)
-   - `GITHUB_TOKEN` (optional fallback for server-to-server calls without a `githubToken` in the body)
-5. Deploy. Railway gives you a public URL — open it, that's your UI. (This also fixes the
-   "Cannot GET /" you were seeing: `server.js` previously had no route for `GET /` at all, only
-   `POST /agent/run` and `GET /health` — it now serves the dashboard there.)
-
-## About `vercel-edge/`
-
-Those three files were written to be dropped into a *separate* Next.js/Vercel app (one with its own
-`lib/db.js` / `lib/auth.js` on Neon + Supabase) as a thin proxy in front of this Railway service. Since
-the UI now lives directly in this app instead, that folder is no longer needed — safe to delete, or keep
-around if you later want a Vercel frontend talking to this same `/agent/run` endpoint via `AGENT_API_KEY`.
-
-## Notes / things to sanity check before relying on this
-
-- **Per-request auth**: you can override the GitHub token per call via `"githubToken": "..."` in the
-  request body — useful if different repos need different tokens. Falls back to the server's
-  `GITHUB_TOKEN` env var otherwise.
-- **Model override**: pass `"model": "..."` in the request body to use a different NIM model
-  for a specific task without changing the server default.
-- **No test/build verification yet**: aider makes the change and commits it, but nothing runs the
-  project's test suite before opening the PR. That's the next piece to add (spin up the app,
-  run tests, feed failures back to aider before pushing).
-- **Concurrency**: each request gets its own `workspaces/<repo>-<runId>` directory, so concurrent
-  requests against different repos (or even the same repo) won't collide. Workspaces (and aider's
-  log dir alongside them) are deleted after each run, success or failure.
-- **maxBuffer**: git/aider output is capped at 50MB per command; raise `maxBuffer` in `run()` in
-  `server.js` if you hit truncation on very large diffs.
-- **Aider's chat/input history files never enter the repo**: they're written to a directory
-  outside the clone (`--chat-history-file` / `--input-history-file`) and `commitPendingChanges`
-  additionally excludes any `.aider*` files from `git add` as a second layer of defense, so
-  they can't end up committed into a PR even if something else drops one into the working tree.
-- **Console execution has no sandboxing beyond the host container** — see "Execution console" above.
+- Sessions are stored in-memory (`express-session`'s default store). That's
+  fine for a single low-traffic instance, but they're wiped on every restart
+  and won't work if you scale to multiple instances. Swap in `connect-redis`
+  or similar if that matters to you.
+- The `repo` OAuth scope is requested so private repos work. If you only ever
+  need public repos, narrow it to `public_repo` in `server/routes/auth.js`.
+- Each aider run has a 5 minute timeout (`server/lib/aider.js`) — bump
+  `timeout` there for bigger tasks.
+- A streaming endpoint (`POST /api/agent/run/stream`, Server-Sent Events)
+  already exists but isn't wired into the frontend yet — the UI currently
+  waits for the full aider run before showing output.

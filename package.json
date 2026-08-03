@@ -1,14 +1,20 @@
 {
   "name": "coding-agent",
   "version": "1.0.0",
-  "description": "Aider + NIM powered coding agent: clone repo, apply changes, open PR",
-  "main": "server.js",
+  "type": "module",
+  "description": "AI coding agent with 68 Alibaba models",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
   },
   "dependencies": {
-    "pg": "^8.22.0",
-    "express": "^4.19.2",
-    "simple-git": "^3.25.0"
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-session": "^1.18.0",
+    "marked": "^11.0.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
