@@ -15,10 +15,10 @@ export const securityMiddleware = [
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com", "cdn.jsdelivr.net"],
-        styleSrc: ["'self'", "'unsafe-inline", "fonts.googleapis.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdnjs.cloudflare.com"],
         fontSrc: ["'self'", "fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "wss:", "ws:"],
+        connectSrc: ["'self'", "wss:", "ws:", "cdnjs.cloudflare.com", "cdn.jsdelivr.net"],
       },
     },
     crossOriginEmbedderPolicy: false,
