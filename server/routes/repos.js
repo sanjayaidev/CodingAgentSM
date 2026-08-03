@@ -3,7 +3,7 @@ import express from 'express';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { listGithubRepos, createPullRequest } from '../lib/github.js';
-import { cloneOrUpdateRepo, commitAll, pushBranch, getDiff } from '../lib/git.js';
+import { cloneOrUpdateRepo, commitAll, pushBranch, getDiff, setupSshRemote, ensureBranch, getCurrentBranch } from '../lib/git.js';
 
 const execFileAsync = promisify(execFile);
 const router = express.Router();
@@ -45,9 +45,51 @@ router.post('/clone', requireAuth, async (req, res) => {
       authorEmail: req.session.user.email,
     });
 
-    res.json({ success: true, path: localPath });
+    // Task 1: Set up SSH remote for authenticated pushes
+    const sshUrl = cloneUrl.replace('https://github.com/', 'git@github.com:');
+    await setupSshRemote(localPath, sshUrl);
+
+    // Task 1: Ensure we're on the main branch (or specified default branch)
+    const branchName = defaultBranch || 'main';
+    await ensureBranch(localPath, branchName);
+
+    res.json({ success: true, path: localPath, branch: branchName });
   } catch (error) {
     console.error('[Repos] Clone failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Setup SSH remote for a loaded repo
+router.post('/setup-ssh', requireAuth, async (req, res) => {
+  const { repoPath, sshUrl } = req.body;
+
+  if (!repoPath) {
+    return res.status(400).json({ error: 'repoPath is required' });
+  }
+
+  try {
+    const result = await setupSshRemote(repoPath, sshUrl);
+    res.json(result);
+  } catch (error) {
+    console.error('[Repos] Setup SSH failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current branch info
+router.get('/branch', requireAuth, async (req, res) => {
+  const { repoPath } = req.query;
+
+  if (!repoPath) {
+    return res.status(400).json({ error: 'repoPath is required' });
+  }
+
+  try {
+    const branch = await getCurrentBranch(repoPath);
+    res.json({ success: true, branch });
+  } catch (error) {
+    console.error('[Repos] Get branch failed:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

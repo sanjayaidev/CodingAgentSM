@@ -74,3 +74,101 @@ export function writeFile(repoPath, relPath, content) {
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
   fs.writeFileSync(fullPath, content, 'utf-8');
 }
+
+/**
+ * Delete a file or directory
+ */
+export function deleteItem(repoPath, relPath) {
+  const fullPath = path.join(repoPath, relPath);
+  if (!fullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (!fs.existsSync(fullPath)) {
+    throw new Error('Item does not exist');
+  }
+  fs.rmSync(fullPath, { recursive: true, force: true });
+}
+
+/**
+ * Rename a file or directory
+ */
+export function renameItem(repoPath, oldRelPath, newRelPath) {
+  const oldFullPath = path.join(repoPath, oldRelPath);
+  const newFullPath = path.join(repoPath, newRelPath);
+  
+  if (!oldFullPath.startsWith(path.resolve(repoPath)) || !newFullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (!fs.existsSync(oldFullPath)) {
+    throw new Error('Source item does not exist');
+  }
+  fs.renameSync(oldFullPath, newFullPath);
+}
+
+/**
+ * Move a file or directory to a new location
+ */
+export function moveItem(repoPath, sourceRelPath, destRelPath) {
+  const sourceFullPath = path.join(repoPath, sourceRelPath);
+  const destFullPath = path.join(repoPath, destRelPath);
+  
+  if (!sourceFullPath.startsWith(path.resolve(repoPath)) || !destFullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (!fs.existsSync(sourceFullPath)) {
+    throw new Error('Source item does not exist');
+  }
+  fs.mkdirSync(path.dirname(destFullPath), { recursive: true });
+  fs.renameSync(sourceFullPath, destFullPath);
+}
+
+/**
+ * Copy a file or directory to a new location
+ */
+export function copyItem(repoPath, sourceRelPath, destRelPath) {
+  const sourceFullPath = path.join(repoPath, sourceRelPath);
+  const destFullPath = path.join(repoPath, destRelPath);
+  
+  if (!sourceFullPath.startsWith(path.resolve(repoPath)) || !destFullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (!fs.existsSync(sourceFullPath)) {
+    throw new Error('Source item does not exist');
+  }
+  
+  if (fs.statSync(sourceFullPath).isDirectory()) {
+    fs.cpSync(sourceFullPath, destFullPath, { recursive: true });
+  } else {
+    fs.mkdirSync(path.dirname(destFullPath), { recursive: true });
+    fs.copyFileSync(sourceFullPath, destFullPath);
+  }
+}
+
+/**
+ * Create a new file
+ */
+export function createFile(repoPath, relPath, content = '') {
+  const fullPath = path.join(repoPath, relPath);
+  if (!fullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (fs.existsSync(fullPath)) {
+    throw new Error('File already exists');
+  }
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, content, 'utf-8');
+}
+
+/**
+ * Create a new directory
+ */
+export function createDirectory(repoPath, relPath) {
+  const fullPath = path.join(repoPath, relPath);
+  if (!fullPath.startsWith(path.resolve(repoPath))) {
+    throw new Error('Invalid path');
+  }
+  if (fs.existsSync(fullPath)) {
+    throw new Error('Directory already exists');
+  }
+  fs.mkdirSync(fullPath, { recursive: true });
+}

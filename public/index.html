@@ -1,787 +1,929 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Coding Agent · 68 Alibaba Models</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <title>Aider Web Client</title>
   <style>
-    :root {
-      --bg: #0c0e0f;
-      --panel: #131619;
-      --panel-2: #191d21;
-      --border: #262b2f;
-      --text: #e6e9ea;
-      --text-dim: #8a9298;
-      --text-faint: #565d62;
-      --green: #7ee787;
-      --green-dim: #2e5f34;
-      --red: #f47067;
-      --blue: #58a6ff;
-      --amber: #e3b341;
-      --radius: 10px;
-      --font: 'Inter', system-ui, sans-serif;
-      --mono: 'JetBrains Mono', monospace;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font);
-      min-height: 100vh;
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f8f9fa;
+      color: #333;
     }
-    ::selection { background: var(--green-dim); }
 
-    .app { display: flex; flex-direction: column; height: 100vh; }
-    .topbar {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 14px 24px; border-bottom: 1px solid var(--border);
-      background: var(--panel);
-      flex-shrink: 0;
+    .container {
+      display: flex;
+      height: 100vh;
     }
-    .topbar-left { display: flex; align-items: center; gap: 12px; }
-    .logo { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
-    .logo span { color: var(--green); }
-    .badge {
-      font-size: 11px; font-family: var(--mono); color: var(--text-dim);
-      background: var(--panel-2); padding: 2px 10px; border-radius: 20px;
-      border: 1px solid var(--border);
-    }
-    .topbar-right { display: flex; align-items: center; gap: 14px; }
-
-    .main { display: flex; flex: 1; overflow: hidden; }
 
     .sidebar {
-      width: 260px; background: var(--panel); border-right: 1px solid var(--border);
-      display: flex; flex-direction: column; flex-shrink: 0;
+      width: 300px;
+      border-right: 1px solid #dee2e6;
+      display: flex;
+      flex-direction: column;
+      background-color: white;
     }
-    .sidebar-header {
-      padding: 12px 16px; border-bottom: 1px solid var(--border);
-      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--text-faint); display: flex; align-items: center; justify-content: space-between;
+
+    .header {
+      padding: 1rem;
+      border-bottom: 1px solid #dee2e6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+
+    .header h2 {
+      margin: 0;
+      font-size: 1.25rem;
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn {
+      padding: 0.25rem 0.5rem;
+      border: 1px solid #ccc;
+      background-color: white;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.875rem;
+    }
+
+    .btn:hover {
+      background-color: #f8f9fa;
+    }
+
+    .btn-primary {
+      background-color: #007bff;
+      color: white;
+      border-color: #007bff;
+    }
+
+    .btn-primary:hover {
+      background-color: #0069d9;
+    }
+
+    .btn-danger {
+      background-color: #dc3545;
+      color: white;
+      border-color: #dc3545;
+    }
+
+    .btn-danger:hover {
+      background-color: #c82333;
+    }
+
+    .btn-success {
+      background-color: #28a745;
+      color: white;
+      border-color: #28a745;
+    }
+
+    .btn-success:hover {
+      background-color: #218838;
+    }
+
+    .btn-sm {
+      padding: 0.25rem 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .btn-xs {
+      padding: 0.125rem 0.25rem;
+      font-size: 0.75rem;
+    }
+
     .file-tree {
-      flex: 1; overflow-y: auto; padding: 8px;
+      overflow-y: auto;
+      flex-grow: 1;
+      padding: 0.5rem;
     }
+
     .file-item {
-      display: flex; align-items: center; gap: 6px;
-      padding: 6px 8px; border-radius: 6px; cursor: pointer;
-      font-size: 13px; color: var(--text-dim); transition: all 0.15s;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      padding: 0.25rem 0;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
     }
-    .file-item:hover { background: var(--panel-2); color: var(--text); }
-    .file-item.active {
-      background: var(--green-dim); color: var(--text);
-    }
-    .file-item .icon { font-size: 14px; width: 16px; text-align: center; }
-    .file-item .name { overflow: hidden; text-overflow: ellipsis; }
-    .folder-toggle {
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 16px; height: 16px; cursor: pointer; color: var(--text-faint);
-      transition: transform 0.15s;
-    }
-    .folder-toggle.expanded { transform: rotate(90deg); }
-    .folder-children { display: none; }
-    .folder-children.open { display: block; }
 
-    .center-panel {
-      flex: 1; display: flex; flex-direction: column; background: var(--bg);
-      min-width: 0;
+    .file-item:hover {
+      background-color: #f8f9fa;
     }
+
+    .file-item.selected {
+      background-color: #e3f2fd;
+    }
+
+    .file-icon {
+      margin-right: 0.25rem;
+      width: 16px;
+      text-align: center;
+    }
+
+    .file-actions {
+      margin-left: auto;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .file-item:hover .file-actions {
+      opacity: 1;
+    }
+
+    .file-actions button {
+      margin-left: 0.25rem;
+    }
+
+    .context-menu {
+      position: fixed;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      z-index: 1000;
+      display: none;
+    }
+
+    .context-menu ul {
+      list-style: none;
+      margin: 0;
+      padding: 0.25rem 0;
+    }
+
+    .context-menu li {
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+
+    .context-menu li:hover {
+      background-color: #f8f9fa;
+    }
+
+    .main-content {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
     .editor-container {
-      flex: 1; display: flex; flex-direction: column; overflow: hidden;
-    }
-    .editor-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 16px; border-bottom: 1px solid var(--border);
-      background: var(--panel); flex-shrink: 0;
-    }
-    .editor-path {
-      font-family: var(--mono); font-size: 12px; color: var(--text-dim);
-    }
-    .editor-actions { display: flex; gap: 8px; }
-    .editor-actions button {
-      padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
-      background: var(--panel-2); color: var(--text); font-size: 11px;
-      cursor: pointer; transition: all 0.15s;
-    }
-    .editor-actions button:hover { background: var(--border); }
-    .editor-actions button.save-btn {
-      background: var(--green-dim); border-color: var(--green);
-    }
-    #monaco-editor { flex: 1; }
-
-    .terminal-container {
-      height: 200px; border-top: 1px solid var(--border);
-      background: #0a0b0c; display: flex; flex-direction: column;
-      flex-shrink: 0;
-    }
-    .terminal-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 12px; border-bottom: 1px solid var(--border);
-      background: var(--panel); font-size: 11px; color: var(--text-faint);
-      text-transform: uppercase; letter-spacing: 0.06em;
-    }
-    .terminal-body {
-      flex: 1; padding: 8px; overflow-y: auto; font-family: var(--mono);
-      font-size: 12px; color: var(--text-dim);
-    }
-    .terminal-line { white-space: pre-wrap; word-break: break-all; }
-    .terminal-line.prompt { color: var(--green); }
-    .terminal-line.error { color: var(--red); }
-    .terminal-line.info { color: var(--blue); }
-    .terminal-input-row {
-      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-      border-top: 1px solid var(--border); background: var(--panel);
-    }
-    .terminal-prompt { color: var(--green); font-family: var(--mono); font-size: 12px; }
-    .terminal-input {
-      flex: 1; background: transparent; border: none; outline: none;
-      color: var(--text); font-family: var(--mono); font-size: 12px;
+      flex-grow: 1;
+      padding: 1rem;
+      overflow: auto;
     }
 
-    .chat-sidebar {
-      width: 380px; background: var(--panel); border-left: 1px solid var(--border);
-      display: flex; flex-direction: column; flex-shrink: 0;
+    #editor {
+      width: 100%;
+      height: 100%;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      resize: none;
+      padding: 0.5rem;
     }
-    .chat-header {
-      padding: 12px 16px; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .chat-title {
-      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
-      color: var(--text-faint);
-    }
-    .model-select-inline {
-      display: flex; align-items: center; gap: 6px;
-      padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
-      background: var(--panel-2);
-    }
-    .model-select-inline select {
-      background: none; border: none; color: var(--text);
-      font-family: var(--mono); font-size: 11px; padding: 2px 4px;
-      outline: none; cursor: pointer;
-    }
-    .chat-messages {
-      flex: 1; overflow-y: auto; padding: 12px; display: flex;
-      flex-direction: column; gap: 10px;
-    }
-    .chat-message {
-      max-width: 90%; padding: 10px 12px; border-radius: var(--radius);
-      font-size: 13px; line-height: 1.5; white-space: pre-wrap;
-    }
-    .chat-message.user {
-      align-self: flex-end; background: var(--green-dim);
-      border: 1px solid rgba(126,231,135,0.15);
-    }
-    .chat-message.assistant {
-      align-self: flex-start; background: var(--panel-2);
-      border: 1px solid var(--border);
-    }
-    .chat-message code {
-      background: rgba(255,255,255,0.06); padding: 0.1em 0.3em;
-      border-radius: 4px; font-family: var(--mono); font-size: 11px;
-    }
-    .chat-message pre {
-      margin: 6px 0 0; background: #08090a; padding: 8px 10px;
-      border-radius: 6px; overflow: auto; border: 1px solid rgba(255,255,255,0.06);
-      font-size: 11px;
-    }
-    .chat-composer {
-      padding: 12px; border-top: 1px solid var(--border);
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .chat-composer textarea {
-      width: 100%; padding: 10px 12px; border-radius: var(--radius);
-      background: var(--panel-2); border: 1px solid var(--border);
-      color: var(--text); font-family: var(--font); font-size: 13px;
-      resize: none; min-height: 60px; line-height: 1.5;
-    }
-    .chat-composer textarea:focus { outline: none; border-color: var(--green); }
-    .chat-composer button {
-      padding: 10px 18px; border-radius: var(--radius); border: none;
-      background: var(--green); color: #0c0e0f; font-weight: 700;
-      cursor: pointer; transition: all 0.15s; font-size: 13px;
-      align-self: flex-end;
-    }
-    .chat-composer button:hover { filter: brightness(1.1); }
-    .chat-composer button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .diff-preview {
-      margin-top: 8px; padding: 8px; background: #08090a;
-      border-radius: 6px; border: 1px solid var(--border);
-      font-family: var(--mono); font-size: 11px; overflow: auto;
-      max-height: 150px;
-    }
-    .diff-preview .add { color: var(--green); }
-    .diff-preview .del { color: var(--red); }
-    .diff-preview .meta { color: var(--text-faint); }
 
-    ::-webkit-scrollbar { width: 4px; }
-    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-    @media (max-width: 1000px) {
-      .chat-sidebar { display: none; }
+    .chat-container {
+      height: 200px;
+      border-top: 1px solid #dee2e6;
+      display: flex;
+      flex-direction: column;
     }
-    @media (max-width: 700px) {
-      .sidebar { display: none; }
-      .topbar { flex-wrap: wrap; gap: 8px; }
-      .topbar-right { width: 100%; flex-wrap: wrap; }
+
+    #chat {
+      flex-grow: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      background-color: white;
+    }
+
+    .message {
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #eee;
+    }
+
+    .message:last-child {
+      border-bottom: none;
+    }
+
+    .message-user {
+      font-weight: bold;
+      color: #007bff;
+    }
+
+    .message-response {
+      color: #666;
+    }
+
+    #input-form {
+      display: flex;
+      padding: 1rem;
+      background-color: #f8f9fa;
+      border-top: 1px solid #dee2e6;
+    }
+
+    #user-input {
+      flex-grow: 1;
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-right: 0.5rem;
+    }
+
+    #submit-btn {
+      padding: 0.5rem 1rem;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    #submit-btn:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+
+    .login-prompt {
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .login-prompt p {
+      margin-bottom: 1rem;
+    }
+
+    .status-bar {
+      padding: 0.5rem 1rem;
+      background-color: #f8f9fa;
+      border-top: 1px solid #dee2e6;
+      font-size: 0.875rem;
+      color: #666;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #007bff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 0.5rem;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      color: white;
+      z-index: 1001;
+      min-width: 250px;
+    }
+
+    .notification-success {
+      background-color: #28a745;
+    }
+
+    .notification-error {
+      background-color: #dc3545;
+    }
+
+    .notification-info {
+      background-color: #17a2b8;
+    }
+
+    .notification-warning {
+      background-color: #ffc107;
+      color: black;
+    }
+
+    .notification-hidden {
+      display: none;
+    }
+
+    .file-tree-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .file-tree-title {
+      margin: 0;
+      font-size: 1rem;
+    }
+
+    .new-item-buttons {
+      display: flex;
+      gap: 0.25rem;
+    }
+
+    .folder-content {
+      margin-left: 1rem;
+    }
+
+    .file-path {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 0.25rem;
     }
   </style>
 </head>
 <body>
-
-<div id="root"></div>
-
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.28.4/babel.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
-
-<script type="text/babel" data-presets="react">
-
-const { useState, useEffect, useRef, useCallback } = React;
-
-async function fetchJSON(url, opts = {}) {
-  const res = await fetch(url, { credentials: 'same-origin', ...opts });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-function FileTreeItem({ item, depth = 0, onSelect, selectedPath }) {
-  const [expanded, setExpanded] = useState(depth < 1);
-
-  const handleClick = () => {
-    if (item.type === 'directory') {
-      setExpanded(!expanded);
-    } else {
-      onSelect(item);
-    }
-  };
-
-  const icon = item.type === 'directory'
-    ? (expanded ? '📂' : '📁')
-    : (item.name.endsWith('.js') || item.name.endsWith('.jsx') ? '📜' :
-       item.name.endsWith('.html') ? '🌐' :
-       item.name.endsWith('.css') ? '🎨' :
-       item.name.endsWith('.md') ? '📝' : '📄');
-
-  if (item.type === 'directory') {
-    return (
-      <div>
-        <div
-          className={`file-item`}
-          onClick={handleClick}
-          style={{ paddingLeft: `${8 + depth * 16}px` }}
-        >
-          <span className="folder-toggle">{expanded ? '▼' : '▶'}</span>
-          <span className="icon">{icon}</span>
-          <span className="name">{item.name}</span>
-        </div>
-        <div className={`folder-children ${expanded ? 'open' : ''}`}>
-          {item.children?.map(child => (
-            <FileTreeItem
-              key={child.path}
-              item={child}
-              depth={depth + 1}
-              onSelect={onSelect}
-              selectedPath={selectedPath}
-            />
-          ))}
+  <div class="container">
+    <div class="sidebar">
+      <div class="header">
+        <h2>Files</h2>
+        <div class="actions">
+          <button id="new-file-btn" class="btn btn-sm">New File</button>
+          <button id="new-folder-btn" class="btn btn-sm">New Folder</button>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div
-      className={`file-item ${selectedPath === item.path ? 'active' : ''}`}
-      onClick={handleClick}
-      style={{ paddingLeft: `${8 + depth * 16}px` }}
-    >
-      <span className="icon">{icon}</span>
-      <span className="name">{item.name}</span>
+      <div class="file-tree" id="file-tree">
+        <!-- File tree will be populated here -->
+      </div>
+      <ul class="context-menu" id="context-menu">
+        <li data-action="delete">Delete</li>
+        <li data-action="rename">Rename</li>
+        <li data-action="copy">Copy</li>
+        <li data-action="move">Move</li>
+      </ul>
     </div>
-  );
-}
-
-function Terminal({ repoPath }) {
-  const [history, setHistory] = useState([
-    { type: 'info', text: 'Terminal initialized. Type commands below.' }
-  ]);
-  const [input, setInput] = useState('');
-  const bodyRef = useRef(null);
-
-  useEffect(() => {
-    if (bodyRef.current) {
-      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
-    }
-  }, [history]);
-
-  const executeCommand = async (cmd) => {
-    if (!cmd.trim()) return;
-    setHistory(prev => [...prev, { type: 'prompt', text: `$ ${cmd}` }]);
-    setInput('');
-
-    try {
-      const response = await fetch('/api/repos/exec', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoPath, command: cmd }),
-      });
-      const data = await response.json();
-      if (data.output) {
-        setHistory(prev => [...prev, { type: 'normal', text: data.output }]);
-      }
-      if (data.error) {
-        setHistory(prev => [...prev, { type: 'error', text: data.error }]);
-      }
-    } catch (error) {
-      setHistory(prev => [...prev, { type: 'error', text: error.message }]);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter') {
-      executeCommand(input);
-    }
-  };
-
-  return (
-    <div className="terminal-container">
-      <div className="terminal-header">
-        <span>⌨️ Terminal</span>
-        <span style={{ fontSize: 10 }}>{repoPath || 'No repo loaded'}</span>
+    <div class="main-content">
+      <div class="editor-container">
+        <textarea id="editor" placeholder="Select a file to edit"></textarea>
       </div>
-      <div className="terminal-body" ref={bodyRef}>
-        {history.map((line, i) => (
-          <div key={i} className={`terminal-line ${line.type}`}>{line.text}</div>
-        ))}
+      <div class="chat-container">
+        <div id="chat">
+          <div class="login-prompt" id="login-prompt">
+            <p>You are not logged in to GitHub.</p>
+            <a href="/api/auth/github" class="btn btn-primary">Log in with GitHub</a>
+          </div>
+        </div>
+        <form id="input-form">
+          <input type="text" id="user-input" placeholder="Message aider..." autocomplete="off" disabled>
+          <button type="submit" id="submit-btn" disabled>Send</button>
+        </form>
       </div>
-      <div className="terminal-input-row">
-        <span className="terminal-prompt">$</span>
-        <input
-          type="text"
-          className="terminal-input"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type a command..."
-          disabled={!repoPath}
-        />
+      <div class="status-bar" id="status-bar">
+        Not connected
       </div>
     </div>
-  );
-}
+  </div>
 
-function App() {
-  const [models, setModels] = useState([]);
-  const [chatModel, setChatModel] = useState(null);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [chatLoading, setLoading] = useState(false);
-  const [status, setStatus] = useState({ online: true, modelCount: 0 });
+  <div id="notification" class="notification notification-hidden"></div>
 
-  const [user, setUser] = useState(null);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [repos, setRepos] = useState([]);
-  const [selectedRepo, setSelectedRepo] = useState(null);
-  const [repoPath, setRepoPath] = useState('');
-  const [repoLoading, setRepoLoading] = useState(false);
-  const [repoError, setRepoError] = useState('');
+  <script>
+    // Global variables
+    let currentRepoPath = null;
+    let currentFilePath = null;
+    let editorModified = false;
+    let currentFileContent = '';
+    let contextMenuTarget = null;
 
-  const [fileTree, setFileTree] = useState([]);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [editorContent, setEditorContent] = useState('');
-  const [editorDirty, setEditorDirty] = useState(false);
-  const [diffPreview, setDiffPreview] = useState('');
+    // DOM elements
+    const fileTreeEl = document.getElementById('file-tree');
+    const editorEl = document.getElementById('editor');
+    const chatEl = document.getElementById('chat');
+    const userInputEl = document.getElementById('user-input');
+    const submitBtnEl = document.getElementById('submit-btn');
+    const loginPromptEl = document.getElementById('login-prompt');
+    const statusBarEl = document.getElementById('status-bar');
+    const notificationEl = document.getElementById('notification');
+    const contextMenuEl = document.getElementById('context-menu');
+    const newFileBtn = document.getElementById('new-file-btn');
+    const newFolderBtn = document.getElementById('new-folder-btn');
 
-  const editorRef = useRef(null);
-  const monacoRef = useRef(null);
-  const chatEndRef = useRef(null);
-
-  useEffect(() => {
-    fetchJSON('/api/agent/models')
-      .then(data => {
-        setModels(data.models || []);
-        setStatus({ online: true, modelCount: data.total || 0 });
-        if (data.models?.length) {
-          const defaultModel = data.models.find(m => m.category === 'coding') || data.models[0];
-          setChatModel(defaultModel);
-        }
-      })
-      .catch(() => setStatus({ online: false, modelCount: 0 }));
-  }, []);
-
-  useEffect(() => {
-    fetchJSON('/api/auth/me')
-      .then(data => setUser(data.user))
-      .catch(() => setUser(null))
-      .finally(() => setAuthChecked(true));
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    fetchJSON('/api/repos')
-      .then(data => setRepos(data.repos || []))
-      .catch(err => setRepoError(err.message));
-  }, [user]);
-
-  const loadRepo = useCallback(async () => {
-    if (!selectedRepo) return;
-    setRepoLoading(true);
-    setRepoError('');
-    try {
-      const data = await fetchJSON('/api/repos/clone', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: selectedRepo.fullName,
-          cloneUrl: selectedRepo.cloneUrl,
-          defaultBranch: selectedRepo.defaultBranch,
-        }),
-      });
-      setRepoPath(data.path);
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ Loaded \`${selectedRepo.fullName}\` — ready for tasks.`,
-      }]);
-      // Load file tree
-      loadFileTree(data.path);
-    } catch (err) {
-      setRepoError(err.message);
-    } finally {
-      setRepoLoading(false);
-    }
-  }, [selectedRepo]);
-
-  const loadFileTree = async (path) => {
-    try {
-      const data = await fetchJSON(`/api/files/tree?repoPath=${encodeURIComponent(path)}`);
-      setFileTree(data.tree || []);
-    } catch (err) {
-      console.error('Failed to load file tree:', err);
-    }
-  };
-
-  const loadFileContent = async (file) => {
-    try {
-      const data = await fetchJSON(`/api/files/content?repoPath=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(file.path)}`);
-      setEditorContent(data.content || '');
-      setSelectedFile(file);
-      setEditorDirty(false);
-
-      if (monacoRef.current) {
-        monacoRef.current.setValue(data.content || '');
-      }
-    } catch (err) {
-      console.error('Failed to load file:', err);
-    }
-  };
-
-  const saveFile = async () => {
-    if (!selectedFile || !repoPath) return;
-    try {
-      await fetchJSON('/api/files/content', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoPath,
-          path: selectedFile.path,
-          content: editorContent,
-        }),
-      });
-      setEditorDirty(false);
-      setChatMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `✅ Saved \`${selectedFile.path}\``,
-      }]);
-    } catch (err) {
-      console.error('Failed to save file:', err);
-    }
-  };
-
-  const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-    setUser(null);
-    setRepos([]);
-    setSelectedRepo(null);
-    setRepoPath('');
-    setFileTree([]);
-    setSelectedFile(null);
-  }, []);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
-
-  useEffect(() => {
-    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
-    require(['vs/editor/editor.main'], function () {
-      monacoRef.current = monaco.editor.create(editorRef.current, {
-        value: editorContent,
-        language: 'javascript',
-        theme: 'vs-dark',
-        automaticLayout: true,
-        minimap: { enabled: true },
-        fontSize: 14,
-        fontFamily: 'JetBrains Mono',
-      });
-
-      monacoRef.current.onDidChangeModelContent(() => {
-        const val = monacoRef.current.getValue();
-        setEditorContent(val);
-        setEditorDirty(true);
-      });
+    // Check authentication status on load
+    window.addEventListener('load', () => {
+      checkAuthStatus();
     });
-  }, []);
 
-  const sendMessage = useCallback(async (e) => {
-    e.preventDefault();
-    if (!chatInput.trim() || chatLoading || !chatModel || !repoPath) return;
-
-    const userMessage = chatInput.trim();
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setLoading(true);
-
-    setChatMessages(prev => [...prev, { role: 'assistant', content: '...', loading: true }]);
-
-    try {
-      const data = await fetchJSON('/api/agent/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoPath,
-          task: userMessage,
-          modelId: chatModel.id,
-        }),
-      });
-
-      setDiffPreview(data.diff || '');
-
-      setChatMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last && last.loading) {
-          const content = data.success
-            ? (data.output || 'Done — no output.')
-            : `⚠️ ${data.error || 'aider reported an error'}\n\n${data.output || ''}`;
-          return [...prev.slice(0, -1), { role: 'assistant', content }];
+    // Authentication check
+    async function checkAuthStatus() {
+      try {
+        const response = await fetch('/api/auth/status');
+        const data = await response.json();
+        
+        if (data.authenticated) {
+          loginPromptEl.classList.add('hidden');
+          userInputEl.disabled = false;
+          submitBtnEl.disabled = false;
+          statusBarEl.textContent = `Logged in as ${data.user.login}`;
+          
+          // Load repositories
+          loadReposList();
+        } else {
+          loginPromptEl.classList.remove('hidden');
+          userInputEl.disabled = true;
+          submitBtnEl.disabled = true;
+          statusBarEl.textContent = 'Not logged in';
         }
-        return prev;
-      });
-
-      // Refresh file tree after changes
-      loadFileTree(repoPath);
-    } catch (error) {
-      setChatMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last && last.loading) {
-          return [...prev.slice(0, -1), { role: 'assistant', content: `⚠️ Error: ${error.message}` }];
-        }
-        return prev;
-      });
-    } finally {
-      setLoading(false);
+      } catch (error) {
+        showNotification(`Error checking auth status: ${error.message}`, 'error');
+      }
     }
-  }, [chatInput, chatLoading, chatModel, repoPath]);
 
-  const groupedModels = models.reduce((acc, m) => {
-    if (!acc[m.category]) acc[m.category] = [];
-    acc[m.category].push(m);
-    return acc;
-  }, {});
+    // Load repositories list
+    async function loadReposList() {
+      try {
+        const response = await fetch('/api/repos');
+        const data = await response.json();
+        
+        if (data.repos && data.repos.length > 0) {
+          // For now, just show a message that we have repos
+          const repoCountMsg = document.createElement('div');
+          repoCountMsg.className = 'message message-response';
+          repoCountMsg.innerHTML = `<strong>Aider:</strong> You have access to ${data.repos.length} repositories.`;
+          chatEl.appendChild(repoCountMsg);
+          chatEl.scrollTop = chatEl.scrollHeight;
+        }
+      } catch (error) {
+        showNotification(`Error loading repos: ${error.message}`, 'error');
+      }
+    }
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        <div className="topbar-left">
-          <div className="logo">⚡ <span>Code</span>Agent</div>
-          <span className="badge">{status.modelCount} models</span>
-        </div>
-        <div className="topbar-right">
-          <span className="badge">
-            <span className="status-dot green"></span>
-            {status.online ? 'Connected' : 'Offline'}
-          </span>
-          <span className="badge">Alibaba · SG</span>
-          {authChecked && (
-            user ? (
-              <span className="badge" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <img src={user.avatarUrl} alt="" style={{ width: 16, height: 16, borderRadius: '50%' }} />
-                {user.login}
-                <button
-                  onClick={logout}
-                  style={{ background: 'none', border: 'none', color: 'var(--text-faint)', cursor: 'pointer', fontSize: 11, padding: 0, marginLeft: 4 }}
-                >
-                  log out
-                </button>
-              </span>
-            ) : (
-              <a href="/api/auth/github" className="badge" style={{ textDecoration: 'none', color: 'var(--green)' }}>
-                🔗 Connect GitHub
-              </a>
-            )
-          )}
-        </div>
-      </header>
+    // Event listeners for file operations
+    newFileBtn.addEventListener('click', () => {
+      const fileName = prompt('Enter file name:');
+      if (fileName) {
+        createFileInCurrentRepo(fileName, '');
+      }
+    });
 
-      <div className="main">
-        {/* Left Sidebar - Files */}
-        <aside className="sidebar">
-          <div className="sidebar-header">
-            <span>📁 Files</span>
-          </div>
-          <div className="file-tree">
-            {!repoPath ? (
-              <div style={{ padding: '16px', color: 'var(--text-faint)', fontSize: 12 }}>
-                Load a repo to see files
+    newFolderBtn.addEventListener('click', () => {
+      const folderName = prompt('Enter folder name:');
+      if (folderName) {
+        createDirectoryInCurrentRepo(folderName);
+      }
+    });
+
+    // Context menu event listeners
+    fileTreeEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      
+      const fileItem = e.target.closest('.file-item');
+      if (!fileItem) return;
+      
+      contextMenuTarget = fileItem.dataset.path;
+      const rect = fileItem.getBoundingClientRect();
+      
+      contextMenuEl.style.display = 'block';
+      contextMenuEl.style.left = `${rect.left}px`;
+      contextMenuEl.style.top = `${rect.bottom}px`;
+    });
+
+    document.addEventListener('click', () => {
+      contextMenuEl.style.display = 'none';
+    });
+
+    contextMenuEl.addEventListener('click', async (e) => {
+      const action = e.target.dataset.action;
+      if (!action || !contextMenuTarget) return;
+      
+      contextMenuEl.style.display = 'none';
+      
+      switch(action) {
+        case 'delete':
+          if (confirm(`Are you sure you want to delete "${contextMenuTarget}"?`)) {
+            await deleteItemFromRepo(contextMenuTarget);
+          }
+          break;
+        case 'rename':
+          const newName = prompt('Enter new name:', contextMenuTarget.split('/').pop());
+          if (newName) {
+            const newPath = contextMenuTarget.split('/').slice(0, -1).concat(newName).join('/');
+            await renameItemInRepo(contextMenuTarget, newPath);
+          }
+          break;
+        case 'copy':
+          const copyPath = prompt('Enter destination path for copy:', contextMenuTarget);
+          if (copyPath && copyPath !== contextMenuTarget) {
+            await copyItemInRepo(contextMenuTarget, copyPath);
+          }
+          break;
+        case 'move':
+          const movePath = prompt('Enter destination path for move:', contextMenuTarget);
+          if (movePath && movePath !== contextMenuTarget) {
+            await moveItemInRepo(contextMenuTarget, movePath);
+          }
+          break;
+      }
+    });
+
+    // Form submission
+    document.getElementById('input-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const message = userInputEl.value.trim();
+      if (!message) return;
+
+      // Add user message to chat
+      addMessageToChat('user', message);
+      userInputEl.value = '';
+      
+      // Disable input while processing
+      userInputEl.disabled = true;
+      submitBtnEl.disabled = true;
+      
+      try {
+        // If we have a current file, include it in the request
+        let response;
+        if (currentFilePath && currentRepoPath) {
+          response = await fetch('/api/aider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              message, 
+              repoPath: currentRepoPath,
+              filePath: currentFilePath
+            })
+          });
+        } else {
+          // If no file selected, just send the message
+          response = await fetch('/api/aider', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+          });
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          addMessageToChat('response', `Error: ${data.error}`);
+        } else {
+          addMessageToChat('response', data.response);
+          
+          // If aider made changes to the current file, reload it
+          if (currentFilePath && data.fileChanged === currentFilePath) {
+            await loadFile(currentRepoPath, currentFilePath);
+          }
+        }
+      } catch (error) {
+        addMessageToChat('response', `Error: ${error.message}`);
+      } finally {
+        // Re-enable input
+        userInputEl.disabled = false;
+        submitBtnEl.disabled = false;
+        userInputEl.focus();
+      }
+    });
+
+    // Editor change detection
+    editorEl.addEventListener('input', () => {
+      editorModified = true;
+      if (currentFilePath && currentRepoPath) {
+        // Update the file in the repo
+        saveFileToRepo(currentRepoPath, currentFilePath, editorEl.value);
+      }
+    });
+
+    // Functions for file operations
+    async function loadFileTree(repoPath) {
+      try {
+        const response = await fetch(`/api/files/tree?repoPath=${encodeURIComponent(repoPath)}`);
+        const data = await response.json();
+        
+        if (data.tree) {
+          fileTreeEl.innerHTML = renderFileTree(data.tree, repoPath);
+          currentRepoPath = repoPath;
+        }
+      } catch (error) {
+        showNotification(`Error loading file tree: ${error.message}`, 'error');
+      }
+    }
+
+    function renderFileTree(tree, repoPath, basePath = '') {
+      let html = '<div class="file-tree-header"><h3 class="file-tree-title">Project Files</h3></div>';
+      html += '<ul class="file-list">';
+      
+      for (const item of tree) {
+        const fullPath = basePath ? `${basePath}/${item.name}` : item.name;
+        
+        if (item.type === 'directory') {
+          html += `
+            <li class="directory-item">
+              <div class="file-item" data-type="directory" data-path="${fullPath}">
+                <span class="file-icon">📁</span>
+                <span>${item.name}</span>
               </div>
-            ) : (
-              fileTree.map(item => (
-                <FileTreeItem
-                  key={item.path}
-                  item={item}
-                  onSelect={loadFileContent}
-                  selectedPath={selectedFile?.path}
-                />
-              ))
-            )}
-          </div>
-        </aside>
-
-        {/* Center Panel - Editor + Terminal */}
-        <div className="center-panel">
-          {/* Repo picker bar */}
-          {user && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-              <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>📁 Repo:</span>
-              <select
-                value={selectedRepo?.fullName || ''}
-                onChange={e => {
-                  const r = repos.find(rr => rr.fullName === e.target.value);
-                  setSelectedRepo(r || null);
-                }}
-                style={{ padding: '4px 8px', borderRadius: 6, background: 'var(--panel-2)', border: '1px solid var(--border)', color: 'var(--text)', fontFamily: 'var(--mono)', fontSize: 12 }}
-              >
-                <option value="">Select a repo…</option>
-                {repos.map(r => (
-                  <option key={r.fullName} value={r.fullName}>
-                    {r.fullName}{r.private ? ' 🔒' : ''}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={loadRepo}
-                disabled={!selectedRepo || repoLoading}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--border)', background: repoPath && selectedRepo?.fullName ? 'var(--green-dim)' : 'var(--panel-2)', color: 'var(--text)', fontSize: 12, cursor: 'pointer' }}
-              >
-                {repoLoading ? 'Loading…' : 'Load repo'}
-              </button>
-              {repoPath && (
-                <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>{repoPath}</span>
-              )}
-              {repoError && <span style={{ fontSize: 11, color: 'var(--red)' }}>{repoError}</span>}
-            </div>
-          )}
-
-          {/* Editor */}
-          <div className="editor-container">
-            <div className="editor-header">
-              <span className="editor-path">
-                {selectedFile ? selectedFile.path : 'No file selected'}
-                {editorDirty && <span style={{ color: 'var(--amber)' }}> ●</span>}
-              </span>
-              <div className="editor-actions">
-                <button onClick={saveFile} disabled={!editorDirty || !selectedFile} className="save-btn">
-                  💾 Save
-                </button>
+              <div class="folder-content">
+                ${renderFileTree(item.children, repoPath, fullPath)}
               </div>
-            </div>
-            <div id="monaco-editor" ref={editorRef}></div>
-          </div>
-
-          {/* Terminal */}
-          <Terminal repoPath={repoPath} />
-        </div>
-
-        {/* Right Sidebar - Chat */}
-        <aside className="chat-sidebar">
-          <div className="chat-header">
-            <span className="chat-title">💬 AI Assistant</span>
-            <div className="model-select-inline">
-              <span style={{ fontSize: 10, color: 'var(--text-faint)' }}>Model:</span>
-              <select
-                value={chatModel?.id || ''}
-                onChange={e => {
-                  const m = models.find(mm => mm.id === e.target.value);
-                  if (m) setChatModel(m);
-                }}
-              >
-                {models.map(m => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="chat-messages">
-            {chatMessages.length === 0 && (
-              <div style={{ color: 'var(--text-faint)', textAlign: 'center', padding: '20px 0' }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>💬</div>
-                <div style={{ fontSize: 12 }}>Ask AI to generate code or create PR</div>
+            </li>
+          `;
+        } else {
+          html += `
+            <li class="file-item-li">
+              <div class="file-item" data-type="file" data-path="${fullPath}">
+                <span class="file-icon">📄</span>
+                <span>${item.name}</span>
+                <div class="file-actions">
+                  <button class="btn btn-xs" onclick="event.stopPropagation(); deleteFile('${fullPath}')">Del</button>
+                </div>
               </div>
-            )}
-            {chatMessages.map((msg, i) => (
-              <div key={i} className={`chat-message ${msg.role}`}>
-                <div dangerouslySetInnerHTML={{
-                  __html: msg.loading ? '…' : (msg.content ? marked.parse(msg.content) : '')
-                }} />
-              </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
+              <div class="file-path">${fullPath}</div>
+            </li>
+          `;
+        }
+      }
+      
+      html += '</ul>';
+      return html;
+    }
 
-          {diffPreview && (
-            <div style={{ padding: '0 12px' }}>
-              <div className="diff-preview">
-                <div className="meta">📊 Diff Preview</div>
-                <pre>{diffPreview}</pre>
-              </div>
-            </div>
-          )}
+    async function loadFile(repoPath, filePath) {
+      try {
+        const response = await fetch(`/api/files/content?repoPath=${encodeURIComponent(repoPath)}&path=${encodeURIComponent(filePath)}`);
+        const data = await response.json();
+        
+        if (data.content !== undefined) {
+          editorEl.value = data.content;
+          currentFilePath = filePath;
+          currentFileContent = data.content;
+          editorModified = false;
+          document.title = `Aider - ${filePath}`;
+        }
+      } catch (error) {
+        showNotification(`Error loading file: ${error.message}`, 'error');
+      }
+    }
 
-          <form className="chat-composer" onSubmit={sendMessage}>
-            <textarea
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              placeholder={!repoPath ? 'Load a repo first…' : 'Describe what you want to build...'}
-              disabled={!chatModel || !repoPath || chatLoading}
-              rows={3}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage(e);
-                }
-              }}
-            />
-            <button type="submit" disabled={!chatInput.trim() || !chatModel || !repoPath || chatLoading}>
-              {chatLoading ? '…' : 'Send'}
-            </button>
-          </form>
-        </aside>
-      </div>
-    </div>
-  );
-}
+    async function saveFileToRepo(repoPath, filePath, content) {
+      try {
+        const response = await fetch('/api/files/content', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath, path: filePath, content })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+          throw new Error(data.error || 'Unknown error');
+        }
+        
+        currentFileContent = content;
+        editorModified = false;
+      } catch (error) {
+        showNotification(`Error saving file: ${error.message}`, 'error');
+      }
+    }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    async function deleteFile(filePath) {
+      if (confirm(`Are you sure you want to delete "${filePath}"?`)) {
+        try {
+          const response = await fetch('/api/files/item', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ repoPath: currentRepoPath, path: filePath })
+          });
+          
+          const data = await response.json();
+          
+          if (data.success) {
+            showNotification(`File "${filePath}" deleted`, 'success');
+            
+            // If this was the current file, clear the editor
+            if (currentFilePath === filePath) {
+              editorEl.value = '';
+              currentFilePath = null;
+              document.title = 'Aider Web Client';
+            }
+            
+            // Reload the file tree
+            await loadFileTree(currentRepoPath);
+          } else {
+            throw new Error(data.error || 'Unknown error');
+          }
+        } catch (error) {
+          showNotification(`Error deleting file: ${error.message}`, 'error');
+        }
+      }
+    }
 
-</script>
+    async function createFileInCurrentRepo(fileName, content = '') {
+      try {
+        const response = await fetch('/api/files/create-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, path: fileName, content })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`File "${fileName}" created`, 'success');
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error creating file: ${error.message}`, 'error');
+      }
+    }
+
+    async function createDirectoryInCurrentRepo(folderName) {
+      try {
+        const response = await fetch('/api/files/create-directory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, path: folderName })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`Directory "${folderName}" created`, 'success');
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error creating directory: ${error.message}`, 'error');
+      }
+    }
+
+    async function deleteItemFromRepo(itemPath) {
+      try {
+        const response = await fetch('/api/files/item', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, path: itemPath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`"${itemPath}" deleted`, 'success');
+          
+          // If this was the current file, clear the editor
+          if (currentFilePath === itemPath) {
+            editorEl.value = '';
+            currentFilePath = null;
+            document.title = 'Aider Web Client';
+          }
+          
+          // Reload the file tree
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error deleting item: ${error.message}`, 'error');
+      }
+    }
+
+    async function renameItemInRepo(oldPath, newPath) {
+      try {
+        const response = await fetch('/api/files/rename', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, oldPath, newPath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`"${oldPath}" renamed to "${newPath}"`, 'success');
+          
+          // If this was the current file, update the current file path
+          if (currentFilePath === oldPath) {
+            currentFilePath = newPath;
+            document.title = `Aider - ${newPath}`;
+          }
+          
+          // Reload the file tree
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error renaming item: ${error.message}`, 'error');
+      }
+    }
+
+    async function copyItemInRepo(sourcePath, destPath) {
+      try {
+        const response = await fetch('/api/files/copy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, sourcePath, destPath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`"${sourcePath}" copied to "${destPath}"`, 'success');
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error copying item: ${error.message}`, 'error');
+      }
+    }
+
+    async function moveItemInRepo(sourcePath, destPath) {
+      try {
+        const response = await fetch('/api/files/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repoPath: currentRepoPath, sourcePath, destPath })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showNotification(`"${sourcePath}" moved to "${destPath}"`, 'success');
+          
+          // If this was the current file, update the current file path
+          if (currentFilePath === sourcePath) {
+            currentFilePath = destPath;
+            document.title = `Aider - ${destPath}`;
+          }
+          
+          // Reload the file tree
+          await loadFileTree(currentRepoPath);
+        } else {
+          throw new Error(data.error || 'Unknown error');
+        }
+      } catch (error) {
+        showNotification(`Error moving item: ${error.message}`, 'error');
+      }
+    }
+
+    function addMessageToChat(type, content) {
+      const messageEl = document.createElement('div');
+      messageEl.className = `message message-${type}`;
+      
+      if (type === 'user') {
+        messageEl.innerHTML = `<strong>You:</strong> ${content}`;
+      } else {
+        messageEl.innerHTML = `<strong>Aider:</strong> ${content}`;
+      }
+      
+      chatEl.appendChild(messageEl);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    function showNotification(message, type = 'info') {
+      notificationEl.textContent = message;
+      notificationEl.className = `notification notification-${type}`;
+      
+      setTimeout(() => {
+        notificationEl.className = 'notification notification-hidden';
+      }, 3000);
+    }
+
+    // Add click event delegation for file tree items
+    fileTreeEl.addEventListener('click', (e) => {
+      const fileItem = e.target.closest('.file-item');
+      if (!fileItem) return;
+      
+      const path = fileItem.dataset.path;
+      const type = fileItem.dataset.type;
+      
+      if (type === 'file') {
+        // Remove previous selection
+        document.querySelectorAll('.file-item.selected').forEach(el => {
+          el.classList.remove('selected');
+        });
+        
+        // Add selection to clicked item
+        fileItem.classList.add('selected');
+        
+        // Load the file
+        if (currentRepoPath) {
+          loadFile(currentRepoPath, path);
+        }
+      } else if (type === 'directory') {
+        // Toggle folder expansion
+        const folderContent = fileItem.nextElementSibling;
+        if (folderContent && folderContent.classList.contains('folder-content')) {
+          folderContent.classList.toggle('hidden');
+        }
+      }
+    });
+
+    // Expose functions to global scope for inline event handlers
+    window.deleteFile = deleteFile;
+  </script>
 </body>
 </html>

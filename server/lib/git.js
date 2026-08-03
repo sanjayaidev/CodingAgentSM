@@ -54,6 +54,42 @@ export async function cloneOrUpdateRepo({ token, githubLogin, fullName, cloneUrl
 }
 
 /**
+ * Set up the repository with SSH remote URL for authenticated pushes.
+ * Converts HTTPS clone URL to SSH format and sets as origin.
+ */
+export async function setupSshRemote(repoPath, sshUrl) {
+  if (!sshUrl) {
+    throw new Error('SSH URL is required');
+  }
+  await execFileAsync('git', ['remote', 'set-url', 'origin', sshUrl], { cwd: repoPath });
+  return { success: true, message: 'Remote origin updated to SSH' };
+}
+
+/**
+ * Ensure the specified branch exists and is checked out.
+ * Creates the branch from the current HEAD if it doesn't exist.
+ */
+export async function ensureBranch(repoPath, branchName) {
+  try {
+    // Try to checkout the branch
+    await execFileAsync('git', ['checkout', branchName], { cwd: repoPath });
+    return { success: true, branch: branchName, created: false };
+  } catch (error) {
+    // Branch doesn't exist, create it
+    await execFileAsync('git', ['checkout', '-b', branchName], { cwd: repoPath });
+    return { success: true, branch: branchName, created: true };
+  }
+}
+
+/**
+ * Get the current branch name
+ */
+export async function getCurrentBranch(repoPath) {
+  const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: repoPath });
+  return stdout.trim();
+}
+
+/**
  * Uncommitted changes (working tree + staged) as a unified diff, plus a
  * short per-file status list for the UI.
  */
