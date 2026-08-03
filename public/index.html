@@ -570,8 +570,8 @@
         if (data.repos && data.repos.length > 0) {
           for (const repo of data.repos) {
             const opt = document.createElement('option');
-            opt.value = JSON.stringify({ fullName: repo.full_name, cloneUrl: repo.clone_url, defaultBranch: repo.default_branch });
-            opt.textContent = repo.full_name;
+            opt.value = JSON.stringify({ fullName: repo.fullName, cloneUrl: repo.cloneUrl, defaultBranch: repo.defaultBranch });
+            opt.textContent = repo.fullName;
             repoSelectEl.appendChild(opt);
           }
           loadRepoBtnEl.disabled = false;
