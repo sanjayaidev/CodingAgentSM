@@ -71,9 +71,7 @@ app.use(session({
   // connect-pg-simple if you need persistence or horizontal scaling.
 }));
 
-app.use(express.static(path.join(__dirname, '../public')));
-
-// Routes
+// Routes - MUST be before static middleware to prevent API calls from being caught by static/file serving
 app.use('/api/agent', agentRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/repos', repoRoutes);
@@ -81,6 +79,8 @@ app.use('/api/files', fileRoutes);
 app.use('/api/collab', collabRoutes);
 app.use('/api/analysis', analysisRoutes);
 
+// Static files - after API routes so API calls don't accidentally serve HTML
+app.use(express.static(path.join(__dirname, '../public')));
 // Health check
 app.get('/health', (req, res) => {
   res.json({
