@@ -6,7 +6,7 @@ import path from 'path';
 
 const execFileAsync = promisify(execFile);
 
-const GIT_PATH = '/usr/bin/git';
+const GIT_PATH = 'git';
 const WORKSPACE_DIR = process.env.WORKSPACE_DIR || path.join(process.cwd(), 'workspace');
 
 function safeSegment(str) {
