@@ -422,7 +422,7 @@
 
     if (!response.ok) {
       // Not logged in (401) or other error
-      loginPromptEl.classList.add('hidden');
+      loginPromptEl.classList.remove('hidden');
       userInputEl.disabled = true;
       submitBtnEl.disabled = true;
       statusBarEl.textContent = 'Not logged in';
