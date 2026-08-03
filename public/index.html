@@ -85,6 +85,62 @@
     .folder-children { display: none; }
     .folder-children.open { display: block; }
 
+    /* Context Menu Styles */
+    .context-menu-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 9998;
+    }
+    .context-menu {
+      position: fixed; z-index: 9999;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      min-width: 160px;
+    }
+    .context-menu-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; cursor: pointer;
+      font-size: 13px; color: var(--text-dim);
+      transition: all 0.15s;
+    }
+    .context-menu-item:hover {
+      background: var(--panel-2); color: var(--text);
+    }
+    .context-menu-item.danger {
+      color: var(--red);
+    }
+    .context-menu-item.danger:hover {
+      background: rgba(244, 112, 103, 0.15);
+    }
+    .context-menu-divider {
+      height: 1px; background: var(--border);
+      margin: 4px 0;
+    }
+    .context-menu-input-row {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 8px 12px;
+    }
+    .context-menu-input-row input {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 6px 8px; color: var(--text);
+      font-family: var(--mono); font-size: 12px; outline: none;
+    }
+    .context-menu-input-row input:focus {
+      border-color: var(--green);
+    }
+    .context-menu-buttons {
+      display: flex; gap: 6px; justify-content: flex-end;
+    }
+    .context-menu-buttons button {
+      padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); font-size: 11px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .context-menu-buttons button:hover { background: var(--border); }
+    .context-menu-buttons button.primary {
+      background: var(--green); color: #0c0e0f; border-color: var(--green);
+    }
+
     .center-panel {
       flex: 1; display: flex; flex-direction: column; background: var(--bg);
       min-width: 0;
@@ -268,7 +324,167 @@ function duplicateName(name) {
   return dot > 0 ? `${name.slice(0, dot)} copy${name.slice(dot)}` : `${name} copy`;
 }
 
-function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, activePath }) {
+// Context Menu Component
+function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
+  const [showRenameInput, setShowRenameInput] = useState(false);
+  const [newName, setNewName] = useState(item?.name || '');
+  const [menuPosition, setMenuPosition] = useState({ x, y });
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const handleCopy = async () => {
+    try {
+      const destPath = joinPath(dirnameOf(item.path), duplicateName(item.name));
+      await fetchJSON('/api/files/copy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          sourcePath: item.path,
+          destPath,
+        }),
+      });
+      onRefresh();
+      onClose();
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      await fetchJSON('/api/files/item', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          path: item.path,
+        }),
+      });
+      onRefresh();
+      onClose();
+    } catch (err) {
+      console.error('Failed to delete:', err);
+    }
+  };
+
+  const handleRenameStart = () => {
+    setNewName(item.name);
+    setShowRenameInput(true);
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!newName.trim() || newName === item.name) {
+      setShowRenameInput(false);
+      return;
+    }
+    try {
+      const newPath = joinPath(dirnameOf(item.path), newName);
+      await fetchJSON('/api/files/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          oldPath: item.path,
+          newPath,
+        }),
+      });
+      onRefresh();
+      onClose();
+    } catch (err) {
+      console.error('Failed to rename:', err);
+    }
+  };
+
+  const handleMove = async () => {
+    const newDir = prompt('Enter destination directory path (relative to repo):', dirnameOf(item.path));
+    if (newDir === null) return;
+    try {
+      const destPath = joinPath(newDir, item.name);
+      await fetchJSON('/api/files/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          sourcePath: item.path,
+          destPath,
+        }),
+      });
+      onRefresh();
+      onClose();
+    } catch (err) {
+      console.error('Failed to move:', err);
+      alert('Failed to move: ' + err.message);
+    }
+  };
+
+  // Adjust position if menu goes off-screen
+  useEffect(() => {
+    const rect = { x: menuPosition.x, y: menuPosition.y };
+    const menuWidth = 180;
+    const menuHeight = 250;
+    if (rect.x + menuWidth > window.innerWidth) {
+      rect.x = window.innerWidth - menuWidth - 10;
+    }
+    if (rect.y + menuHeight > window.innerHeight) {
+      rect.y = window.innerHeight - menuHeight - 10;
+    }
+    setMenuPosition(rect);
+  }, []);
+
+  return (
+    <>
+      <div className="context-menu-overlay" onClick={onClose} />
+      <div
+        className="context-menu"
+        style={{ left: `${menuPosition.x}px`, top: `${menuPosition.y}px` }}
+      >
+        {!showRenameInput ? (
+          <>
+            <div className="context-menu-item" onClick={handleCopy}>
+              📋 Copy
+            </div>
+            <div className="context-menu-item" onClick={handleMove}>
+              ➡️ Move
+            </div>
+            <div className="context-menu-item" onClick={handleRenameStart}>
+              ✏️ Rename
+            </div>
+            <div className="context-menu-divider" />
+            <div className="context-menu-item danger" onClick={handleDelete}>
+              🗑️ Delete
+            </div>
+          </>
+        ) : (
+          <div className="context-menu-input-row">
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameSubmit();
+                if (e.key === 'Escape') setShowRenameInput(false);
+              }}
+              autoFocus
+            />
+            <div className="context-menu-buttons">
+              <button onClick={() => setShowRenameInput(false)}>Cancel</button>
+              <button className="primary" onClick={handleRenameSubmit}>Rename</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, activePath, onContextMenu }) {
   const [expanded, setExpanded] = useState(depth < 1);
 
   const handleClick = () => {
@@ -278,6 +494,12 @@ function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, act
     } else {
       onSelect(item);
     }
+  };
+
+  const handleRightClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e.clientX, e.clientY, item);
   };
 
   const icon = item.type === 'directory'
@@ -293,6 +515,7 @@ function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, act
         <div
           className={`file-item ${activePath === item.path ? 'active' : ''}`}
           onClick={handleClick}
+          onContextMenu={handleRightClick}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
         >
           <span className="folder-toggle">{expanded ? '▼' : '▶'}</span>
@@ -309,6 +532,7 @@ function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, act
               onActivate={onActivate}
               selectedPath={selectedPath}
               activePath={activePath}
+              onContextMenu={onContextMenu}
             />
           ))}
         </div>
@@ -320,6 +544,7 @@ function FileTreeItem({ item, depth = 0, onSelect, onActivate, selectedPath, act
     <div
       className={`file-item ${selectedPath === item.path || activePath === item.path ? 'active' : ''}`}
       onClick={handleClick}
+      onContextMenu={handleRightClick}
       style={{ paddingLeft: `${8 + depth * 16}px` }}
     >
       <span className="icon">{icon}</span>
@@ -418,10 +643,19 @@ function App() {
   const [editorContent, setEditorContent] = useState('');
   const [editorDirty, setEditorDirty] = useState(false);
   const [diffPreview, setDiffPreview] = useState('');
+  const [contextMenu, setContextMenu] = useState(null);
 
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const chatEndRef = useRef(null);
+
+  const handleFileContextMenu = (x, y, item) => {
+    setContextMenu({ x, y, item });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu(null);
+  };
 
   useEffect(() => {
     fetchJSON('/api/agent/models')
@@ -666,12 +900,27 @@ function App() {
                   key={item.path}
                   item={item}
                   onSelect={loadFileContent}
+                  onActivate={(item) => {}}
                   selectedPath={selectedFile?.path}
+                  activePath={selectedFile?.path}
+                  onContextMenu={handleFileContextMenu}
                 />
               ))
             )}
           </div>
         </aside>
+
+        {/* Context Menu */}
+        {contextMenu && (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            item={contextMenu.item}
+            repoPath={repoPath}
+            onClose={closeContextMenu}
+            onRefresh={() => loadFileTree(repoPath)}
+          />
+        )}
 
         {/* Center Panel - Editor + Terminal */}
         <div className="center-panel">

@@ -1,5 +1,4 @@
 ```
-# Docker related
-Dockerfile
-
+node_modules/
+*.log
 ```
