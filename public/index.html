@@ -329,6 +329,57 @@ function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
   const [showRenameInput, setShowRenameInput] = useState(false);
   const [newName, setNewName] = useState(item?.name || '');
   const [menuPosition, setMenuPosition] = useState({ x, y });
+  const [showFileInput, setShowFileInput] = useState(false);
+  const [newFileName, setNewFileName] = useState('');
+  const [folderBasePath, setFolderBasePath] = useState('');
+
+  const handleCreateFile = (basePath) => {
+    setFolderBasePath(basePath);
+    setNewFileName('');
+    setShowFileInput(true);
+  };
+
+  const handleCreateFolder = (basePath) => {
+    const name = prompt('Enter folder name:');
+    if (!name || !name.trim()) return;
+    fetchJSON('/api/files/create-directory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoPath,
+        path: basePath + '/' + name,
+      }),
+    }).then(() => {
+      onRefresh();
+      onClose();
+    }).catch(err => {
+      console.error('Failed to create folder:', err);
+      alert('Failed to create folder: ' + err.message);
+    });
+  };
+
+  const handleCreateFileSubmit = async () => {
+    if (!newFileName.trim()) {
+      setShowFileInput(false);
+      return;
+    }
+    try {
+      await fetchJSON('/api/files/create-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repoPath,
+          path: folderBasePath + '/' + newFileName,
+          content: '',
+        }),
+      });
+      onRefresh();
+      onClose();
+    } catch (err) {
+      console.error('Failed to create file:', err);
+      alert('Failed to create file: ' + err.message);
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -447,6 +498,17 @@ function ContextMenu({ x, y, item, repoPath, onClose, onRefresh }) {
       >
         {!showRenameInput ? (
           <>
+            {item.type === 'directory' && (
+              <>
+                <div className="context-menu-item" onClick={() => handleCreateFile(item.path)}>
+                  📄 New File
+                </div>
+                <div className="context-menu-item" onClick={() => handleCreateFolder(item.path)}>
+                  📁 New Folder
+                </div>
+                <div className="context-menu-divider" />
+              </>
+            )}
             <div className="context-menu-item" onClick={handleCopy}>
               📋 Copy
             </div>
