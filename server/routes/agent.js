@@ -2,6 +2,7 @@
 import express from 'express';
 import { runAider } from '../lib/aider.js';
 import { WORKING_MODELS, getModelById, getRecommendedModel } from '../lib/models.js';
+import { getDiff } from '../lib/git.js';
 
 const router = express.Router();
 
@@ -46,11 +47,20 @@ router.post('/run', async (req, res) => {
       files,
     });
 
+    let diff = { diff: '', files: [] };
+    try {
+      diff = await getDiff(repoPath);
+    } catch (diffError) {
+      console.error('[Agent] Diff read failed:', diffError);
+    }
+
     res.json({
       success: result.success,
       model,
       output: result.stdout,
       error: result.stderr || result.error,
+      diff: diff.diff,
+      changedFiles: diff.files,
     });
   } catch (error) {
     console.error('[Agent] Error:', error);
