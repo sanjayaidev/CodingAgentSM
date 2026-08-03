@@ -6,32 +6,32 @@ export const WORKING_MODELS = [
   { id: 'qwen3-coder-plus', label: 'Qwen3 Coder Plus', category: 'coding', speed: 'medium' },
   { id: 'qwen3-coder-flash', label: 'Qwen3 Coder Flash', category: 'coding', speed: 'fast' },
   { id: 'qwen3-coder-480b-a35b-instruct', label: 'Qwen3 Coder 480B', category: 'coding', speed: 'slow' },
-  
+
   // ── Best Reasoning Models ──────────────────────────────────────
   { id: 'qwen3.5-122b-a10b', label: 'Qwen3.5 122B', category: 'reasoning', speed: 'slow' },
   { id: 'qwen3-235b-a22b-thinking-2507', label: 'Qwen3 235B Thinking', category: 'reasoning', speed: 'slow' },
   { id: 'qwq-plus', label: 'QWQ Plus', category: 'reasoning', speed: 'medium' },
-  
+
   // ── Best General Chat ──────────────────────────────────────────
   { id: 'qwen3-max', label: 'Qwen3 Max', category: 'general', speed: 'medium' },
   { id: 'qwen3.7-max', label: 'Qwen3.7 Max', category: 'general', speed: 'medium' },
   { id: 'qwen-plus-2025-07-28', label: 'Qwen Plus (latest)', category: 'general', speed: 'fast' },
   { id: 'qwen3.5-plus', label: 'Qwen3.5 Plus', category: 'general', speed: 'fast' },
   { id: 'qwen-flash', label: 'Qwen Flash', category: 'general', speed: 'fast' },
-  
+
   // ── Vision Models ──────────────────────────────────────────────
   { id: 'qwen-vl-plus', label: 'Qwen VL Plus', category: 'vision', speed: 'medium' },
   { id: 'qwen-vl-max', label: 'Qwen VL Max', category: 'vision', speed: 'medium' },
   { id: 'qwen3-vl-plus', label: 'Qwen3 VL Plus', category: 'vision', speed: 'medium' },
-  
+
   // ── DeepSeek Models ────────────────────────────────────────────
   { id: 'deepseek-v3.2', label: 'DeepSeek V3.2', category: 'general', speed: 'medium' },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', category: 'general', speed: 'fast' },
   { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', category: 'general', speed: 'medium' },
-  
+
   // ── GLM Models ──────────────────────────────────────────────────
   { id: 'glm-5.1', label: 'GLM 5.1', category: 'general', speed: 'medium' },
-  
+
   // ── All other working models ──────────────────────────────────
   { id: 'qwen3.5-122b-a10b', label: 'Qwen3.5 122B', category: 'general', speed: 'slow' },
   { id: 'qwen-plus-2025-07-28', label: 'Qwen Plus 2025-07-28', category: 'general', speed: 'fast' },
@@ -125,13 +125,13 @@ export function getRecommendedModel(task, category = 'coding') {
     const codingModels = WORKING_MODELS.filter(m => m.category === 'coding');
     return codingModels[0] || WORKING_MODELS[0];
   }
-  
+
   // For reasoning tasks
   if (task.includes('explain') || task.includes('analyze') || task.includes('think')) {
     const reasoningModels = WORKING_MODELS.filter(m => m.category === 'reasoning');
     return reasoningModels[0] || WORKING_MODELS[0];
   }
-  
+
   // Default: general
   const generalModels = WORKING_MODELS.filter(m => m.category === 'general');
   return generalModels[0] || WORKING_MODELS[0];
