@@ -15,8 +15,16 @@ export const securityMiddleware = [
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'", "cdnjs.cloudflare.com", "cdn.jsdelivr.net"],
+        // Monaco editor spins up its tokenizer/language workers from blob:
+        // URLs it generates itself. worker-src falls back to script-src
+        // when unset, and script-src doesn't allow blob:, so without this
+        // the browser blocks every Monaco worker and it limps along
+        // single-threaded on the main thread instead.
+        workerSrc: ["'self'", "blob:"],
         styleSrc: ["'self'", "'unsafe-inline'", "fonts.googleapis.com", "cdnjs.cloudflare.com"],
-        fontSrc: ["'self'", "fonts.gstatic.com"],
+        // Monaco's codicon icon font is served from the same cdnjs path as
+        // its JS/CSS bundle, so font-src needs it too, not just style-src.
+        fontSrc: ["'self'", "fonts.gstatic.com", "cdnjs.cloudflare.com"],
         imgSrc: ["'self'", "data:", "https:"],
         connectSrc: ["'self'", "wss:", "ws:", "cdnjs.cloudflare.com", "cdn.jsdelivr.net"],
       },

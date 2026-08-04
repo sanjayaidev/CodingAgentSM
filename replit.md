@@ -10,6 +10,20 @@ PORT=5000 npm start
 
 The workflow **Start application** is already configured and runs `PORT=5000 npm start`.
 
+## Prerequisites
+
+`aider` is a Python CLI, not an npm package, so `npm install` alone does not
+provide it. Install it once per machine/container:
+
+```
+pip install aider-install && aider-install
+```
+
+Make sure the install directory (usually `~/.local/bin`) is on `PATH` for
+whatever process runs `npm start` — otherwise agent runs fail with
+`spawn aider ENOENT`. The Dockerfile and `.replit` config in this repo
+already do this for you.
+
 ## Required environment variables
 
 | Variable | Required | Description |

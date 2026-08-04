@@ -78,6 +78,15 @@ export async function runAider({
 
     return { stdout, stderr, success: true };
   } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error(
+        "The 'aider' command was not found on this machine/container. " +
+        "aider is a Python CLI (not an npm package), so it isn't installed " +
+        "by `npm install`. Install it with: pip install aider-install && aider-install " +
+        "— then make sure the directory it installs to (usually ~/.local/bin) is on PATH " +
+        "for the process running this server."
+      );
+    }
     // Aider can exit non-zero even after making changes
     console.log(`[Aider] Exit code: ${error.code}`);
     return {

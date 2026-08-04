@@ -1,4 +1,4 @@
-modules = ["nodejs-18", "web"]
+modules = ["nodejs-18", "python-3.11", "web"]
 
 [nix]
 channel = "stable-25_05"
@@ -24,7 +24,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=5000 npm start"
+args = "command -v aider >/dev/null 2>&1 || (pip install --user aider-install && ~/.local/bin/aider-install); export PATH=\"$HOME/.local/bin:$PATH\"; PORT=5000 npm start"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
