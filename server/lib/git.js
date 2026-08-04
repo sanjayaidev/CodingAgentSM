@@ -185,8 +185,39 @@ export async function discardChanges(repoPath) {
 /**
  * Push the current branch (creating it if needed) so a PR can be opened
  * against it on GitHub.
+ *
+ * Pushes over HTTPS using the caller's GitHub OAuth token, the same way
+ * cloneOrUpdateRepo authenticates — not over the SSH remote that
+ * setupSshRemote can point origin at. There's no SSH private key, agent,
+ * or known_hosts configured anywhere in this app, so a bare `git push` to
+ * a git@github.com: remote can never authenticate; it either can't spawn
+ * ssh at all (missing openssh-client) or gets a publickey rejection once
+ * ssh is present. The token is only ever placed on the push URL itself
+ * (never written into .git/config), matching how clone handles it.
  */
-export async function pushBranch(repoPath, branchName) {
+export async function pushBranch(repoPath, branchName, token) {
   await execFileAsync(GIT_PATH, ['checkout', '-B', branchName], { cwd: repoPath });
-  await execFileAsync(GIT_PATH, ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
+
+  if (!token) {
+    // No token available — fall back to whatever origin is configured
+    // (e.g. a real SSH deploy key set up out-of-band via /setup-ssh).
+    await execFileAsync(GIT_PATH, ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
+    return;
+  }
+
+  const { stdout: originUrlRaw } = await execFileAsync(GIT_PATH, ['remote', 'get-url', 'origin'], { cwd: repoPath });
+  const originUrl = originUrlRaw.trim();
+  const httpsUrl = originUrl.startsWith('git@github.com:')
+    ? `https://github.com/${originUrl.slice('git@github.com:'.length).replace(/\.git$/, '')}.git`
+    : originUrl;
+  const authedUrl = httpsUrl.replace('https://', `https://x-access-token:${token}@`);
+
+  await execFileAsync(
+    GIT_PATH,
+    ['push', authedUrl, `HEAD:refs/heads/${branchName}`, '--force-with-lease'],
+    { cwd: repoPath }
+  );
+
+  // Keep origin pointed at the plain (tokenless) HTTPS URL at rest.
+  await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', httpsUrl], { cwd: repoPath });
 }

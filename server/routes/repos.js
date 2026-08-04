@@ -46,10 +46,6 @@ router.post('/clone', requireAuth, async (req, res) => {
       authorEmail: req.session.user.email,
     });
 
-    // Task 1: Set up SSH remote for authenticated pushes
-    const sshUrl = cloneUrl.replace('https://github.com/', 'git@github.com:');
-    await setupSshRemote(localPath, sshUrl);
-
     // Task 1: Ensure we're on the main branch (or specified default branch)
     const branchName = defaultBranch || 'main';
     await ensureBranch(localPath, branchName);
@@ -152,7 +148,7 @@ router.post('/push', requireAuth, async (req, res) => {
     const commitResult = await commitAll(repoPath, commitMessage);
     
     // Step 2: Push the branch
-    await pushBranch(repoPath, branchName);
+    await pushBranch(repoPath, branchName, req.session.githubToken);
 
     let prInfo = null;
     

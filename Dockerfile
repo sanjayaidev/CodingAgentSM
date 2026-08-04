@@ -5,10 +5,15 @@
 FROM node:20-bookworm-slim
 
 # git: required for repo operations.
+# openssh-client: git only Recommends (not Depends on) this, so it's
+# skipped by --no-install-recommends below unless listed explicitly — but
+# it's required at runtime because the app pushes over SSH (see
+# setupSshRemote in lib/git.js, which points origin at git@github.com:...).
+# Without it, `git push` fails with "cannot run ssh: No such file or directory".
 # python3/pip: required to install aider (a Python CLI, not an npm package).
-# ca-certificates: needed for pip/uv to fetch packages over HTTPS.
+# ca-certificates: needed for pip/uv/git-over-https/ssh to work over TLS.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git python3 python3-pip ca-certificates \
+    git openssh-client python3 python3-pip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Install aider itself. `pip install aider-install` pulls in `uv`, which
