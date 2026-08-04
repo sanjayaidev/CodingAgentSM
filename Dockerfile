@@ -11,11 +11,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git python3 python3-pip ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install aider itself. aider-install pulls in `uv` and uses it to set up
-# aider in an isolated environment — this is the method aider's own docs
-# recommend, and avoids fighting Node's dependency tree with Python's.
+# Install aider itself. `pip install aider-install` pulls in `uv`, which
+# does the actual install into an isolated environment — this is the
+# method aider's own docs recommend, and avoids fighting Node's dependency
+# tree with Python's. We call `uv tool install` ourselves rather than the
+# `aider-install` wrapper script: the wrapper also runs `uv tool
+# update-shell`, which tries to detect and edit an interactive shell's rc
+# file to add PATH — that has nothing to attach to during a Docker build
+# and fails the build. We set PATH explicitly below instead, so that step
+# is unnecessary here.
 RUN pip3 install --no-cache-dir --break-system-packages aider-install \
-    && aider-install
+    && uv tool install --force --python python3 aider-chat
 ENV PATH="/root/.local/bin:${PATH}"
 
 # Set working directory
