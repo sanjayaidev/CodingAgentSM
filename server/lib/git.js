@@ -60,6 +60,32 @@ async function excludeAiderArtifacts(repoPath) {
 }
 
 /**
+ * Configure this repo to authenticate to github.com over HTTPS for every
+ * git command run against it — not just ones this app issues itself, but
+ * also anything typed directly into the exec terminal (`git push`,
+ * `git pull`, ...). Without this, origin has no credentials at all: no
+ * SSH key is ever configured anywhere in this app, and a plain HTTPS
+ * remote with nothing supplying a username/password just fails outright
+ * with no TTY to prompt on ("could not read Username ... No such device
+ * or address").
+ *
+ * This is the same technique GitHub Actions' checkout action uses: an
+ * `Authorization: Basic ...` header attached in local git config,
+ * scoped to https://github.com/ only, so it's sent on every request but
+ * never touches the remote URL itself (which would otherwise leak the
+ * token into `git remote -v`, reflog, and every child-process argv).
+ */
+async function configureGithubAuth(repoPath, token) {
+  if (!token) return;
+  const header = `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+  await execFileAsync(
+    GIT_PATH,
+    ['config', '--local', 'http.https://github.com/.extraheader', header],
+    { cwd: repoPath }
+  );
+}
+
+/**
  * Returns the local filesystem path a repo would live at for a given user,
  * without touching disk.
  */
@@ -70,27 +96,26 @@ export function localPathFor(githubLogin, ownerRepo) {
 
 /**
  * Clone a repo on first use, or fetch+reset to latest on subsequent uses.
- * Embeds the user's OAuth token in the clone URL so private repos work,
- * then immediately rewrites the git remote to strip the token back out
- * (so it never sits in plaintext inside .git/config on disk).
+ * Leaves the repo configured with a standing auth header (see
+ * configureGithubAuth) so any git command against it — ours or one typed
+ * into a terminal — authenticates automatically, without ever putting the
+ * token in the remote URL itself.
  */
 export async function cloneOrUpdateRepo({ token, githubLogin, fullName, cloneUrl, defaultBranch, authorName, authorEmail }) {
   const dest = localPathFor(githubLogin, fullName);
-  const authedUrl = cloneUrl.replace('https://', `https://x-access-token:${token}@`);
 
   fs.mkdirSync(path.dirname(dest), { recursive: true });
 
   if (!fs.existsSync(path.join(dest, '.git'))) {
-    await execFileAsync(GIT_PATH, ['clone', '--depth', '1', authedUrl, dest]);
+    await execFileAsync(GIT_PATH, ['clone', '--depth', '1', cloneUrl, dest]);
+    await configureGithubAuth(dest, token);
   } else {
-    // Refresh the remote URL (token may have changed) then pull latest.
-    await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', authedUrl], { cwd: dest });
+    // Token may have rotated since the last time this repo was loaded —
+    // refresh the header before touching the network.
+    await configureGithubAuth(dest, token);
     await execFileAsync(GIT_PATH, ['fetch', 'origin', defaultBranch || 'HEAD'], { cwd: dest });
     await execFileAsync(GIT_PATH, ['reset', '--hard', `origin/${defaultBranch || 'HEAD'}`], { cwd: dest });
   }
-
-  // Strip the token back out of the stored remote so it's not sitting on disk.
-  await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', cloneUrl], { cwd: dest });
 
   // aider needs a git identity to make commits.
   await execFileAsync(GIT_PATH, ['config', 'user.name', authorName || 'Coding Agent'], { cwd: dest });
@@ -184,40 +209,13 @@ export async function discardChanges(repoPath) {
 
 /**
  * Push the current branch (creating it if needed) so a PR can be opened
- * against it on GitHub.
- *
- * Pushes over HTTPS using the caller's GitHub OAuth token, the same way
- * cloneOrUpdateRepo authenticates — not over the SSH remote that
- * setupSshRemote can point origin at. There's no SSH private key, agent,
- * or known_hosts configured anywhere in this app, so a bare `git push` to
- * a git@github.com: remote can never authenticate; it either can't spawn
- * ssh at all (missing openssh-client) or gets a publickey rejection once
- * ssh is present. The token is only ever placed on the push URL itself
- * (never written into .git/config), matching how clone handles it.
+ * against it on GitHub. Refreshes the auth header first in case the
+ * token has rotated since the repo was last loaded — actual auth for the
+ * push itself comes from that header (see configureGithubAuth), not from
+ * anything embedded in the push command.
  */
 export async function pushBranch(repoPath, branchName, token) {
+  await configureGithubAuth(repoPath, token);
   await execFileAsync(GIT_PATH, ['checkout', '-B', branchName], { cwd: repoPath });
-
-  if (!token) {
-    // No token available — fall back to whatever origin is configured
-    // (e.g. a real SSH deploy key set up out-of-band via /setup-ssh).
-    await execFileAsync(GIT_PATH, ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
-    return;
-  }
-
-  const { stdout: originUrlRaw } = await execFileAsync(GIT_PATH, ['remote', 'get-url', 'origin'], { cwd: repoPath });
-  const originUrl = originUrlRaw.trim();
-  const httpsUrl = originUrl.startsWith('git@github.com:')
-    ? `https://github.com/${originUrl.slice('git@github.com:'.length).replace(/\.git$/, '')}.git`
-    : originUrl;
-  const authedUrl = httpsUrl.replace('https://', `https://x-access-token:${token}@`);
-
-  await execFileAsync(
-    GIT_PATH,
-    ['push', authedUrl, `HEAD:refs/heads/${branchName}`, '--force-with-lease'],
-    { cwd: repoPath }
-  );
-
-  // Keep origin pointed at the plain (tokenless) HTTPS URL at rest.
-  await execFileAsync(GIT_PATH, ['remote', 'set-url', 'origin', httpsUrl], { cwd: repoPath });
+  await execFileAsync(GIT_PATH, ['push', '-u', 'origin', branchName, '--force-with-lease'], { cwd: repoPath });
 }
